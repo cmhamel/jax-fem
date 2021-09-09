@@ -2,3 +2,6 @@
 *.e
 __pycache__/
 .idea/
+
+# some comments for a test
+#
