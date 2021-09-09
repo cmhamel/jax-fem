@@ -1,4 +1,6 @@
 from ..physics import Physics
+from ..boundary_conditions import DirichletBoundaryCondition
+from ..boundary_conditions import NeumannBoundaryCondition
 
 
 class SteadyStateHeatConduction(Physics):
