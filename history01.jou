@@ -1,0 +1,2 @@
+#!python
+cubit.cmd('create curve location 0 0 0 location 1 0 0')
