@@ -1,4 +1,8 @@
+import jax
+
 from pre_processing import GenesisMesh
+import jax.numpy as jnp
+from jax import jit, partial
 
 
 class Physics:
@@ -91,3 +95,17 @@ class Physics:
                            node_sets=self.node_set_names,
                            side_sets=self.side_set_names,
                            summarize=False)
+
+    @partial(jit, static_argnums=(0,))
+    def get_nodal_quantities_on_element(self, field, e):
+        """
+        :param field: field is the entire nodal array
+        :param e:
+        :return:
+        """
+        field_e = \
+            field[self.genesis_mesh.element_connectivities[0]
+                 [e * self.genesis_mesh.n_nodes_per_element[0]:
+                  (e + 1) * self.genesis_mesh.n_nodes_per_element[0]]]
+
+        return field_e

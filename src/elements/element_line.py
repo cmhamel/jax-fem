@@ -2,6 +2,7 @@ from .element_base_class import ElementBaseClass
 import jax.numpy as jnp
 from jax import jit
 from jax import partial
+import jax
 
 
 class LineElement(ElementBaseClass):
@@ -31,12 +32,12 @@ class LineElement(ElementBaseClass):
         xi = jnp.zeros((self.n_quadrature_points, 1), dtype=jnp.float64)
         w = jnp.zeros((self.n_quadrature_points, 1), dtype=jnp.float64)
         if self.quadrature_order == 1:
-            w = w.at[0, 0].set(2.0)
+            w = jax.ops.index_update(w, jax.ops.index[0, 0], 2.0)
         elif self.quadrature_order == 2:
-            xi = xi.at[0, 0].set(-jnp.sqrt(1.0 / 3.0))
-            xi = xi.at[1, 0].set(jnp.sqrt(1.0 / 3.0))
-            w = w.at[0, 0].set(1.0)
-            w = w.at[1, 0].set(1.0)
+            xi = jax.ops.index_update(xi, jax.ops.index[0, 0], -jnp.sqrt(1.0 / 3.0))
+            xi = jax.ops.index_update(xi, jax.ops.index[1, 0], jnp.sqrt(1.0 / 3.0))
+            w = jax.ops.index_update(w, jax.ops.index[0, 0], 1.0)
+            w = jax.ops.index_update(w, jax.ops.index[1, 0], 1.0)
         else:
             try:
                 assert False
@@ -50,8 +51,8 @@ class LineElement(ElementBaseClass):
         N_xi = jnp.zeros((self.n_quadrature_points, self.n_nodes, 1), dtype=jnp.float64)
         for q in range(self.n_quadrature_points):
             if self.shape_function_order == 1:
-                N_xi = N_xi.at[q, 0, 0].set(0.5 * (1.0 - self.xi[q, 0]))
-                N_xi = N_xi.at[q, 1, 0].set(0.5 * (1.0 + self.xi[q, 0]))
+                N_xi = jax.ops.index_update(N_xi, jax.ops.index[q, 0, 0], 0.5 * (1.0 - self.xi[q, 0]))
+                N_xi = jax.ops.index_update(N_xi, jax.ops.index[q, 1, 0], 0.5 * (1.0 + self.xi[q, 0]))
             else:
                 # don't need to check this in shape function gradients since it's already
                 # checked here
@@ -68,9 +69,8 @@ class LineElement(ElementBaseClass):
         grad_N_xi = jnp.zeros((self.n_quadrature_points, self.n_nodes, 1), dtype=jnp.float64)
         for q in range(self.n_quadrature_points):
             if self.shape_function_order == 1:
-                grad_N_xi = grad_N_xi.at[q, 0, 0].set(-0.5)
-                grad_N_xi = grad_N_xi.at[q, 1, 0].set(0.5)
-
+                grad_N_xi = jax.ops.index_update(grad_N_xi, jax.ops.index[q, 0, 0], -0.5)
+                grad_N_xi = jax.ops.index_update(grad_N_xi, jax.ops.index[q, 1, 0], 0.5)
         return grad_N_xi
 
     @partial(jit, static_argnums=(0,))
@@ -91,7 +91,7 @@ class LineElement(ElementBaseClass):
         grad_N_X = jnp.zeros((self.n_quadrature_points, self.n_nodes, 1), dtype=jnp.float64)
         for q in range(self.n_quadrature_points):
             if self.shape_function_order == 1:
-                grad_N_X = grad_N_X.at[q, 0, 0].set(-1.0 / element_length)
-                grad_N_X = grad_N_X.at[q, 1, 0].set(1.0 / element_length)
+                grad_N_X = jax.ops.index_update(grad_N_X, jax.ops.index[q, 0, 0], -1.0 / element_length)
+                grad_N_X = jax.ops.index_update(grad_N_X, jax.ops.index[q, 1, 0], 1.0 / element_length)
 
         return grad_N_X
