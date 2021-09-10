@@ -2,6 +2,7 @@
 *.e
 .__pycache__/
 .idea/
+*.jou
 
 # some comments for a test
 #
