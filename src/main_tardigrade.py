@@ -2,7 +2,10 @@ import os
 import yaml
 from art import tprint
 import argparse
+from physics import PoissonEquation
 from physics import SteadyStateHeatConduction
+from jax.config import config
+config.update("jax_enable_x64", True)
 
 
 if __name__ == '__main__':
@@ -10,6 +13,9 @@ if __name__ == '__main__':
     # print header and version
     #
     tprint('tardigrade')
+    print('Version 0.0')
+    print('Authors: Craig Hamel and Lizzy Storm')
+    print('\n\n\n')
 
     # parse command line inputs and ensure input file is given
     #
@@ -26,18 +32,19 @@ if __name__ == '__main__':
         except yaml.YAMLError as exc:
             raise Exception('Error in input file')
 
-    print(input_settings)
-
-    general = input_settings['general']
+    n_dimensions = input_settings['number_of_dimensions']
     physics = input_settings['physics']
 
     for key in physics.keys():
-        if key.lower() == 'heat_transfer':
+        if key.lower() == 'poisson_equation':
+            tprint('poisson equation')
+            poisson_equation = PoissonEquation(n_dimensions,
+                                               physics[key])
+        elif key.lower() == 'heat_transfer':
             time_dependence = physics[key]['time_dependence']
             if time_dependence == 'steady_state':
-                heat_transfer = SteadyStateHeatConduction(general['number_of_dimensions'],
-                                                          physics[key]['mesh'])
-                print(heat_transfer)
+                heat_transfer = SteadyStateHeatConduction(n_dimensions,
+                                                          physics[key])
             elif time_dependence == 'transient':
                 assert False, 'not supported yet'
             else:

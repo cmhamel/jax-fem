@@ -2,34 +2,78 @@ from jax import jit
 import jax.numpy as jnp
 from exodus3 import exodus
 from .mesh import Mesh
+from util import suppress_stdout
 
 
 class GenesisMesh(Mesh):
-    def __init__(self, genesis_file, blocks, node_sets, side_sets, summarize=False):
+    """
+    Data structure for a genesis me, it will only read in things
+    that are necessary for the calculation given in the input deck
+    """
+    def __init__(self, n_dimensions,
+                 genesis_file,
+                 blocks, node_sets, side_sets,
+                 summarize=False):
+        """
+        :param n_dimensions: number of dimensions given in input deck
+        :param genesis_file: genesis file given in input deck
+        :param blocks: block numbers supplied by input deck
+        :param node_sets: node set names supplied by the input deck
+        :param side_sets: side set names supplied by the input deck
+        :param summarize: a flag to exodus to print the contents of the file
+        """
         super(GenesisMesh, self).__init__()
+
+        # variables specific to the genesis mesh structure
+        #
+        self.n_dimensions = n_dimensions
         self.genesis_file = genesis_file
         self.blocks = blocks
         self.node_sets = node_sets
         self.side_sets = side_sets
 
-        self.exo = exo = exodus(self.genesis_file, array_type='numpy')
+        # with suppress_stdout:
+        # with suppress_stdout():
+        self.exo = exodus(self.genesis_file, array_type='numpy')
 
         if summarize:
-            exo.summarize()
+            self.exo.summarize()
+
+        # check to make sure the node sets and side sets are valid
+        #
+        if len(self.node_sets) > 0:
+            exo_node_set_names = self.exo.get_node_set_names()
+            for node_set in self.node_sets:
+                assert node_set in exo_node_set_names
+
+        if len(self.side_sets) > 0:
+            exo_side_set_names = self.exo.get_side_set_names()
+            for side_set in self.side_sets:
+                assert side_set in exo_side_set_names
 
         # initialize mesh arrays
         #
-        self.n_dimensions = self.read_number_of_dimensions()
-        self.nodal_coordinates = self.read_nodal_coordinates()
-        self.element_connectivity, self.n_elements_in_block, self.n_nodes_per_element = \
-            self.read_element_connectivity(1)  # TODO add multiple blocks
+        self.nodal_coordinates = jnp.array(self.read_nodal_coordinates())
+        self.element_connectivities = []
+        self.n_elements_in_blocks = []
+        self.n_nodes_per_element = []
 
-    def __del__(self):
-        self.genesis_file = None
-        self.exo.close()
-        self.exo = None
-        self.nodal_coordinates = None
-        self.element_connectivity = None
+        for block in self.blocks:
+            element_connectivity, n_elements_in_block, n_nodes_per_element = \
+                self.read_element_connectivity(block)  # TODO add multiple blocks
+
+            # subtract one to make it zero indexed
+            #
+            self.element_connectivities.append(jnp.array(element_connectivity) - 1)
+            self.n_elements_in_blocks.append(n_elements_in_block)
+            self.n_nodes_per_element.append(n_nodes_per_element)
+
+        # get stuff for node sets
+        #
+        self.node_set_nodes = self.read_node_set_nodes()
+
+        # with suppress_stdout:
+        #     exo.close()
 
     def __str__(self):
         print('Genesis file = %s' % self.genesis_file)
@@ -46,27 +90,26 @@ class GenesisMesh(Mesh):
             print('\t%s' % side_set)
         print('\n')
 
-    def read_number_of_dimensions(self):
-        n_dimensions = self.exo.read_number_of_dimensions
-        return n_dimensions
-
     def read_nodal_coordinates(self):
 
         # read nodal coordinates
         #
         x_coordinates, y_coordinates, z_coordinates = self.exo.get_coords()
 
-        if self.number_of_dimensions == 1:
+        if self.n_dimensions == 1:
             nodal_coordinates = x_coordinates.reshape((-1, 1))
-        elif self.number_of_dimensions == 2:
+        elif self.n_dimensions == 2:
             nodal_coordinates = jnp.concatenate((x_coordinates.reshape((-1, 1)),
                                                  y_coordinates.reshape((-1, 1))), 1)
-        elif self.number_of_dimensions == 3:
+        elif self.n_dimensions == 3:
             nodal_coordinates = jnp.concatenate((x_coordinates.reshape((-1, 1)),
                                                  y_coordinates.reshape((-1, 1)),
                                                  z_coordinates.reshape((-1, 1))), 1)
         else:
-            assert False, 'unsupported number of dimensions currently'
+            try:
+                assert False
+            except AssertionError:
+                raise Exception('Bad number df dimensions in GenesisMesh')
 
         return nodal_coordinates
 
@@ -77,7 +120,14 @@ class GenesisMesh(Mesh):
         return element_connectivity, n_elements_in_block, n_nodes_per_element
 
     def read_node_set_nodes(self):
-        pass
+        exo_node_set_names = self.exo.get_node_set_names()
+        exo_node_set_ids = self.exo.get_node_set_ids()
+        node_set_nodes = []
+        for node_set in self.node_sets:
+            id = exo_node_set_ids[exo_node_set_names.index(node_set)]
+            node_set_nodes.append(self.exo.get_node_set_nodes(id) - 1)
+        return node_set_nodes
 
     def read_side_set_elements_and_faces(self):
         pass
+        # TODO finish this out when you implement Neumann boundary conditions
