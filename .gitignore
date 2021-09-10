@@ -1,6 +1,6 @@
 *.g
 *.e
-__pycache__/
+.__pycache__/
 .idea/
 
 # some comments for a test
