@@ -3,6 +3,7 @@
 .__pycache__/
 .idea/
 *.jou
+*.pyc
 
 # some comments for a test
 #
