@@ -77,6 +77,7 @@ class GenesisMesh(Mesh):
 
         # with suppress_stdout:
         #     exo.close()
+        self.exo.close()
 
     def __str__(self):
         print('Genesis file = %s' % self.genesis_file)

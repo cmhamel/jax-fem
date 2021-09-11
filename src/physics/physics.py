@@ -1,6 +1,7 @@
 import jax
 
 from pre_processing import GenesisMesh
+from post_processing import PostProcessor
 import jax.numpy as jnp
 from jax import jit, partial
 
@@ -13,6 +14,7 @@ class Physics:
         self.mesh_input_block = self.physics_input['mesh']
         self.blocks_input_block = self.physics_input['blocks']
         self.boundary_conditions_input_block = self.physics_input['boundary_conditions']
+        self.post_processing_block = self.physics_input['output']
 
         # read mesh input settings
         #
@@ -28,6 +30,10 @@ class Physics:
         self.side_set_names = self.read_side_set_names()
 
         self.genesis_mesh = self.set_genesis_mesh()
+
+        # set up the post processor
+        #
+        self.post_processor = self.set_post_processor()
 
     def __str__(self):
         string = '--- Generic physics base class ---\n'
@@ -95,6 +101,12 @@ class Physics:
                            node_sets=self.node_set_names,
                            side_sets=self.side_set_names,
                            summarize=False)
+
+    def set_post_processor(self):
+        print('Initializing PostProcessor')
+        return PostProcessor(n_dimensions=self.n_dimensions,
+                             post_processor_input_block=self.post_processing_block,
+                             genesis_mesh=self.genesis_mesh)
 
     @partial(jit, static_argnums=(0,))
     def get_nodal_quantities_on_element(self, field, e):

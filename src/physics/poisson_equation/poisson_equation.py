@@ -179,13 +179,11 @@ class PoissonEquation(Physics):
             # assemble the residual
             #
             residual = jit_assemble_linear_system(u)  # TODO once the jit is fixed above uncomment this
-            # residual = self.assemble_linear_system(u)
 
             # assert False
             # calculate the tangent matrix using auto-differentiation
             #
             tangent = jit_tangent(residual)
-            # tangent = jacfwd(self.assemble_linear_system)(residual)
 
             # enforce dirichlet BCs in the tangent matrix
             #
@@ -206,8 +204,6 @@ class PoissonEquation(Physics):
             #
             u = jax.ops.index_add(u, jax.ops.index[:], -delta_u)
 
-            # reshape the relevant arrays so they're all (n, 1)
-            #
             return residual, delta_u, u
 
         # begin solver loop
