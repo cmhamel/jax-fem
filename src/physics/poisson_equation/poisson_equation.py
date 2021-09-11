@@ -64,12 +64,20 @@ class PoissonEquation(Physics):
                              source_input_block['type'],
                              source_input_block['value'])
         # print(source_input_block)
+        print(self.source.values)
 
         # solve
         #
         self.solver_input_block = self.physics_input['solver']
         self.u = self.solve()
-        self.post_process()
+
+        if n_dimensions == 1:
+            self.post_process_1d()
+        elif n_dimensions == 2:
+            self.post_process_2d()
+            self.post_processor.exo.close()
+        else:
+            assert False
 
     def calculate_element_level_residual(self, nodal_fields):
         """
@@ -238,10 +246,14 @@ class PoissonEquation(Physics):
     def print_solver_state(self, increment, residual_error, increment_error):
         print('\t{0:4}\t\t{1:.8e}\tt{2:.8e}'.format(increment, residual_error[0], increment_error[0]))
 
-    def post_process(self):
+    def post_process_1d(self):
         import matplotlib.pyplot as plt
         plt.plot(self.genesis_mesh.nodal_coordinates, self.u)
         plt.plot(self.genesis_mesh.nodal_coordinates, -0.5 * self.genesis_mesh.nodal_coordinates**2 +
                  0.5 * self.genesis_mesh.nodal_coordinates,
                  linestyle='None', marker='o')
         plt.show()
+
+    def post_process_2d(self):
+        self.post_processor.exo.put_time(1, 0.0)
+        self.post_processor.write_nodal_scalar_variable('u', 1, jnp.asarray(self.u))
