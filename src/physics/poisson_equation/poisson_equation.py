@@ -101,44 +101,36 @@ class PoissonEquation(Physics):
         # set up residual and grab connectivity for convenience
         #
         residual = jnp.zeros(self.genesis_mesh.nodal_coordinates.shape, dtype=jnp.float64)
-        coordinates = self.genesis_mesh.nodal_coordinates
-        connectivity = self.genesis_mesh.element_connectivities[0]
-        n_nodes_per_el = self.genesis_mesh.n_nodes_per_element[0]
+        connectivity = self.genesis_mesh.connectivity
+
+        coordinates = self.genesis_mesh.nodal_coordinates[connectivity]
+        u_element_wise = u[connectivity]
+        source_element_wise = jnp.ones_like(u_element_wise)
 
         # jit the element level residual calculator
         #
         jit_calculate_element_level_residual = jit(self.calculate_element_level_residual)
 
-        for e in range(self.genesis_mesh.n_elements_in_blocks[0]):
-            coords = coordinates[connectivity[n_nodes_per_el * e:n_nodes_per_el * (e + 1)]]
-            u_nodal = u[connectivity[n_nodes_per_el * e:n_nodes_per_el * (e + 1)]]
-            source = self.source.values[connectivity[n_nodes_per_el * e:n_nodes_per_el * (e + 1)]]
+        def element_calculation(e, input):
+            residual_temp = input
+            R_e = jit_calculate_element_level_residual((coordinates[e], u_element_wise[e], source_element_wise[e]))
+            residual_temp = jax.ops.index_add(residual_temp, jax.ops.index[connectivity[e]], R_e)
+            return residual_temp
 
-            R_e = jit_calculate_element_level_residual((coords, u_nodal, source))
-
-            residual = jax.ops.index_add(residual, jax.ops.index[connectivity[n_nodes_per_el * e:
-                                                                              n_nodes_per_el * (e + 1)]], R_e)
-
-
-        # def element_calculation(e, R):
-        #     coords = coordinates[connectivity[n_nodes_per_el * e:n_nodes_per_el * (e + 1)]]
-        #     u_nodal = u[connectivity[n_nodes_per_el * e:n_nodes_per_el * (e + 1)]]
-        #     source = self.source.values[connectivity[n_nodes_per_el * e:n_nodes_per_el * (e + 1)]]
-        #
-        #     R_e = jit_calculate_element_level_residual((coords, u_nodal, source))
-        #     R = jax.ops.index_update(R, jax.ops.index[connectivity[n_nodes_per_el * e:n_nodes_per_el * (e + 1)]], R_e)
-        #
-        #     return R
-        #
-        # residual = jax.lax.fori_loop(0, self.genesis_mesh.n_elements_in_blocks[0], element_calculation, residual)
+        residual = jax.lax.fori_loop(0, self.genesis_mesh.n_elements_in_blocks[0], element_calculation, residual)
 
         # adjust residual to satisfy dirichlet conditions
         #
-        for i, bc in enumerate(self.dirichlet_bcs):
-            residual = jax.ops.index_update(residual, jax.ops.index[bc.node_set_nodes, 0], 0)
+        def enforce_bcs_on_residual(i, input):
+            residual_temp, bcs_nodes = input
+            bc_nodes = bcs_nodes[i]
+            residual_temp = jax.ops.index_update(residual_temp, jax.ops.index[bc_nodes], 0.0)
+            return residual_temp, bcs_nodes
+
+        residual, _ = jax.lax.fori_loop(0, len(self.dirichlet_bcs),
+                                        enforce_bcs_on_residual, (residual, self.dirichlet_bcs_nodes))
 
         return residual[:, 0]
-    
 
     def solve(self):
 
@@ -162,8 +154,6 @@ class PoissonEquation(Physics):
 
         def solver_function(values):
 
-            # n, u = values
-            # u = values
             residual, delta_u, u = values
 
             # force u to satisfy dirichlet conditions on the bcs
@@ -180,6 +170,7 @@ class PoissonEquation(Physics):
             # assemble the residual
             #
             residual = jit_assemble_linear_system(u)
+            # residual = self.assemble_linear_system(u)
 
             # calculate the tangent matrix using auto-differentiation
             #
@@ -204,52 +195,41 @@ class PoissonEquation(Physics):
             #
             u = jax.ops.index_add(u, jax.ops.index[:, 0], -delta_u)
 
-            # print some stuff about the solution status
+            # reshape the relevant arrays so they're all (n, 1)
             #
-            # print('|R| = %s' % jnp.linalg.norm(residual))
-            # print(r'$|\Delta U|$ = %s' % jnp.linalg.norm(delta_u))
-            # # print(n)
-            # # n = n + 1
-            #
-            # # print(residual.shape)
-            # # print(delta_u.shape)
-            # # print(u.shape)
-            # # assert False
-            #
-            # # norm_R, norm_delta_u = jnp.norm(residual), jnp.norm(delta_u)
-            #
-            # print(jnp.linalg.norm(residual).ravel())
-            # print(jnp.linalg.norm(delta_u).ravel())
-            print('here')
             return residual.reshape((-1, 1)), delta_u.reshape((-1, 1)), u
-            # return n, u
 
-        print('========================================')
-        print('=== Iteration %s' % 0)
-        print('========================================')
-        
-        # condition_function = lambda output: output[0] <= self.solver_input_block['maximum_iterations']
-        condition_function = lambda output: jnp.linalg.norm(output[0]) < 1e-12
-        print('here')
-        # residual_solve, delta_u_solve, u_solve = jax.lax.while_loop(condition_function, solver_function,
-        #                                                             (residual_solve, delta_u_solve, u_solve))
-        print('solution found')
+        # begin solver loop
+        #
         n = 0
+        self.print_solver_heading()
         while n <= self.solver_input_block['maximum_iterations']:
             output = solver_function((residual_solve, delta_u_solve, u_solve))
             n = n + 1
             residual_solve, delta_u_solve, u_solve = output
 
-            print(jnp.linalg.norm(residual_solve).ravel())
-            print(jnp.linalg.norm(delta_u_solve).ravel())
+            residual_error, increment_error = jnp.linalg.norm(residual_solve), jnp.linalg.norm(delta_u_solve)
 
-            print(condition_function(output))
+            self.print_solver_state(n, residual_error.ravel(), increment_error.ravel())
 
-        # print(residual_solve)
-        # print(delta_u_solve)
-        # print(u_solve)
+            if residual_error < self.solver_input_block['residual_tolerance']:
+                print('Converged on residual: |R| = {0:.8e}'.format(residual_error.ravel()[0]))
+                break
+
+            if increment_error < self.solver_input_block['increment_tolerance']:
+                print('Converged on increment: |du| = {0:.8e}'.format(increment_error.ravel()[0]))
+                break
 
         return u_solve
+
+    def print_solver_heading(self):
+        print('-----------------------------------------------------')
+        print('--- Time step %s' % 0)
+        print('-----------------------------------------------------')
+        print('Iteration\t\t|R|\t\t|du|')
+
+    def print_solver_state(self, increment, residual_error, increment_error):
+        print('\t{0:4}\t\t{1:.8e}\tt{2:.8e}'.format(increment, residual_error[0], increment_error[0]))
 
     def post_process(self):
         import matplotlib.pyplot as plt

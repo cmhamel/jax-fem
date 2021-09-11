@@ -75,17 +75,17 @@ class LineElement(ElementBaseClass):
 
     @partial(jit, static_argnums=(0,))
     def calculate_jacobian_map(self, nodal_coordinates):
-        element_length = jnp.abs(nodal_coordinates[0, 0] - nodal_coordinates[1, 0])
+        element_length = jnp.abs(nodal_coordinates[0, 0] - nodal_coordinates[-1, 0])
         return element_length / 2.0
 
     @partial(jit, static_argnums=(0,))
     def calculate_deriminant_of_jacobian_map(self, nodal_coordinates):
-        element_length = jnp.abs(nodal_coordinates[0, 0] - nodal_coordinates[1, 0])
+        element_length = jnp.abs(nodal_coordinates[0, 0] - nodal_coordinates[-1, 0])
         return element_length / 2.0
 
     @partial(jit, static_argnums=(0,))
     def map_shape_function_gradients(self, nodal_coordinates):
-        element_length = jnp.abs(nodal_coordinates[0, 0] - nodal_coordinates[1, 0])
+        element_length = jnp.abs(nodal_coordinates[0, 0] - nodal_coordinates[-1, 0])
         # det_J = self.calculate_deriminant_of_jacobian_map(nodal_coordinates)
 
         grad_N_X = jnp.zeros((self.n_quadrature_points, self.n_nodes, 1), dtype=jnp.float64)

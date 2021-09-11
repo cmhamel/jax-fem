@@ -1,5 +1,7 @@
 from jax import jit
 import jax.numpy as jnp
+
+import exodus3
 from exodus3 import exodus
 from .mesh import Mesh
 from util import suppress_stdout
@@ -57,6 +59,7 @@ class GenesisMesh(Mesh):
         self.element_connectivities = []
         self.n_elements_in_blocks = []
         self.n_nodes_per_element = []
+        self.connectivity = self.read_collected_element_connectivity()
 
         for block in self.blocks:
             element_connectivity, n_elements_in_block, n_nodes_per_element = \
@@ -118,6 +121,21 @@ class GenesisMesh(Mesh):
             self.exo.get_elem_connectivity(block_id)
 
         return element_connectivity, n_elements_in_block, n_nodes_per_element
+
+    def read_collected_element_connectivity(self):
+        """
+        Read the collected element connectivity
+        this in general will probably be easier to handle element wise
+        TODO: figure out how to handle multiple blocks with this format
+        TODO: probably need to get a list of elements in a given block
+        TODO: and index that way for different materials
+        the -1 is to shift it to be zero indexed for python
+        :return: collected element connectivity
+        """
+        connectivity = []
+        exodus3.collectElemConnectivity(self.exo, connectivity)
+        connectivity = jnp.array(connectivity) - 1
+        return connectivity
 
     def read_node_set_nodes(self):
         exo_node_set_names = self.exo.get_node_set_names()
