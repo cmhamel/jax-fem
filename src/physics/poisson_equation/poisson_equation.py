@@ -5,6 +5,7 @@ from ..physics import Physics
 from ..boundary_conditions import DirichletBoundaryCondition
 from ..source import Source
 from elements import LineElement, QuadElement
+from solvers import NewtonRaphsonSolver
 import jax.numpy as jnp
 from jax import jacfwd, jit, partial, vmap
 import jax
@@ -14,6 +15,10 @@ class PoissonEquation(Physics):
     def __init__(self, n_dimensions, physics_input):
         super(PoissonEquation, self).__init__(n_dimensions, physics_input)
         print(self)
+
+        # set number of degress of freedom per node
+        #
+        self.n_dof_per_node = 1
 
         # get some boundary conditions
         #
@@ -63,21 +68,63 @@ class PoissonEquation(Physics):
         self.source = Source(self.genesis_mesh.nodal_coordinates.shape,
                              source_input_block['type'],
                              source_input_block['value'])
-        # print(source_input_block)
-        print(self.source.values)
-
-        # solve
+        # print(self.source.values)
+        # set up a solver
         #
-        self.solver_input_block = self.physics_input['solver']
-        self.u = self.solve()
+        self.solver = NewtonRaphsonSolver(self.solver_input_block,
+                                          len(self.genesis_mesh.nodal_coordinates),
+                                          1,
+                                          self.genesis_mesh.connectivity,
+                                          self.enforce_bcs_on_u,
+                                          self.enforce_bcs_on_residual,
+                                          self.enforce_bcs_on_tangent,
+                                          self.assemble_linear_system)
 
+        # make an initial guess on the solution
+        #
+        u_0 = jnp.zeros(len(self.genesis_mesh.nodal_coordinates[:, 0] * self.n_dof_per_node),
+                        dtype=jnp.float64)
+        self.u = self.solver.solve(0, u_0, self.dirichlet_bcs_nodes, self.dirichlet_bcs_values)
         if n_dimensions == 1:
             self.post_process_1d()
         elif n_dimensions == 2:
             self.post_process_2d()
             self.post_processor.exo.close()
         else:
-            assert False
+            try:
+                assert False
+            except AssertionError:
+                raise Exception('Unsupported number of dimensions to postprocess')
+
+        # adjust residual to satisfy dirichlet conditions
+        #
+
+    # force u to satisfy dirichlet conditions on the bcs
+    #
+    @staticmethod
+    def enforce_bcs_on_u(i, input):
+        u_temp, bcs_nodes, bcs_values = input
+        bc_nodes, bc_values = bcs_nodes[i], bcs_values[i]
+        u_temp = jax.ops.index_update(u_temp, jax.ops.index[bc_nodes], bc_values)
+        return u_temp, bcs_nodes, bcs_values
+
+    # force residual to be 0 on dofs with dirchlet bcs
+    #
+    @staticmethod
+    def enforce_bcs_on_residual(i, input):
+        residual_temp, bcs_nodes = input
+        bc_nodes = bcs_nodes[i]
+        residual_temp = jax.ops.index_update(residual_temp, jax.ops.index[bc_nodes], 0.0)
+        return residual_temp, bcs_nodes
+
+    # enforce dirichlet BCs in the tangent matrix
+    #
+    @staticmethod
+    def enforce_bcs_on_tangent(i, input):
+        tangent_temp, bcs_nodes, bcs_values = input
+        bc_nodes, bc_values = bcs_nodes[i], bcs_values[i]
+        tangent_temp = jax.ops.index_update(tangent_temp, jax.ops.index[bc_nodes, bc_nodes], 1.0)
+        return tangent_temp, bcs_nodes, bcs_values
 
     def calculate_element_level_residual(self, nodal_fields):
         """
@@ -97,12 +144,13 @@ class PoissonEquation(Physics):
             grad_N_X = self.element_objects[0].map_shape_function_gradients(coords)[q, :, :]
             JxW = self.element_objects[0].calculate_JxW(coords)[q, 0]
 
-            s_q = jnp.matmul(N_xi.T, source)
+            # s_q = jnp.matmul(N_xi.T, source)
+            # s_q = jnp.average(source)
+            s_q = self.source.value
             grad_u_q = jnp.matmul(grad_N_X.T, u_nodal).reshape((-1, 1))
 
-            # R_q = JxW * (s_q * N_xi - grad_u_q * grad_N_X)
             R_q = JxW * (s_q * N_xi - jnp.matmul(grad_N_X, grad_u_q))
-
+            # R_q = JxW * (-jnp.matmul(grad_N_X, grad_u_q))
             R_element = jax.ops.index_add(R_element, jax.ops.index[:], R_q[:, 0])
 
             return R_element
@@ -115,7 +163,7 @@ class PoissonEquation(Physics):
 
         # set up residual and grab connectivity for convenience
         #
-        residual = jnp.zeros(self.genesis_mesh.nodal_coordinates[:, 0].shape, dtype=jnp.float64)
+        residual = jnp.zeros_like(u)
         connectivity = self.genesis_mesh.connectivity
 
         coordinates = self.genesis_mesh.nodal_coordinates[connectivity]
@@ -136,115 +184,10 @@ class PoissonEquation(Physics):
 
         # adjust residual to satisfy dirichlet conditions
         #
-        def enforce_bcs_on_residual(i, input):
-            residual_temp, bcs_nodes = input
-            bc_nodes = bcs_nodes[i]
-            residual_temp = jax.ops.index_update(residual_temp, jax.ops.index[bc_nodes], 0.0)
-            return residual_temp, bcs_nodes
-
         residual, _ = jax.lax.fori_loop(0, len(self.dirichlet_bcs),
-                                        enforce_bcs_on_residual, (residual, self.dirichlet_bcs_nodes))
+                                        self.enforce_bcs_on_residual, (residual, self.dirichlet_bcs_nodes))
 
         return residual
-
-    def solve(self):
-
-        # jit the relevant methods
-        #
-        jit_assemble_linear_system = jit(self.assemble_linear_system)    # TODO problem with jit here
-                                                                         # TODO some nodal arrays are changing shape
-                                                                         # TODO every other iteration
-        jit_tangent = jit(jacfwd(self.assemble_linear_system))         # TODO problem is actually when tangent
-                                                                         # TODO is jitted
-        jit_gmres = jit(jax.scipy.sparse.linalg.gmres)
-
-        # initialize the solution vector
-        #
-        u_solve = jnp.zeros(self.genesis_mesh.nodal_coordinates[:, 0].shape, dtype=jnp.float64)
-        residual_solve = jnp.zeros_like(u_solve)
-        delta_u_solve = jnp.zeros_like(u_solve)
-
-        # begin loop over non-linear iterations
-        #
-        # n = 0
-        # while n <= self.solver_input_block['maximum_iterations']:
-
-        def solver_function(values):
-
-            residual, delta_u, u = values
-
-            # force u to satisfy dirichlet conditions on the bcs
-            #
-            def enforce_bcs_on_u(i, input):
-                u_temp, bcs_nodes, bcs_values = input
-                bc_nodes, bc_values = bcs_nodes[i], bcs_values[i]
-                u_temp = jax.ops.index_update(u_temp, jax.ops.index[bc_nodes], bc_values)
-                return u_temp, bcs_nodes, bcs_values
-
-            u, _, _ = jax.lax.fori_loop(0, len(self.dirichlet_bcs),
-                                        enforce_bcs_on_u, (u, self.dirichlet_bcs_nodes, self.dirichlet_bcs_values))
-
-            # assemble the residual
-            #
-            residual = jit_assemble_linear_system(u)  # TODO once the jit is fixed above uncomment this
-
-            # assert False
-            # calculate the tangent matrix using auto-differentiation
-            #
-            tangent = jit_tangent(residual)
-
-            # enforce dirichlet BCs in the tangent matrix
-            #
-            def enforce_bcs_on_tangent(i, input):
-                tangent_temp, bcs_nodes, bcs_values = input
-                bc_nodes, bc_values = bcs_nodes[i], bcs_values[i]
-                tangent_temp = jax.ops.index_update(tangent_temp, jax.ops.index[bc_nodes, bc_nodes], 1.0)
-                return tangent_temp, bcs_nodes, bcs_values
-
-            tangent, _, _ = jax.lax.fori_loop(0, len(self.dirichlet_bcs), enforce_bcs_on_tangent,
-                                              (tangent, self.dirichlet_bcs_nodes, self.dirichlet_bcs_values))
-
-            # solve for solution increment
-            #
-            delta_u, _ = jit_gmres(tangent, residual)
-
-            # update the solution increment, note where the minus sign is
-            #
-            u = jax.ops.index_add(u, jax.ops.index[:], -delta_u)
-
-            return residual, delta_u, u
-
-        # begin solver loop
-        #
-        n = 0
-        self.print_solver_heading()
-        while n <= self.solver_input_block['maximum_iterations']:
-            output = solver_function((residual_solve, delta_u_solve, u_solve))
-            n = n + 1
-            residual_solve, delta_u_solve, u_solve = output
-
-            residual_error, increment_error = jnp.linalg.norm(residual_solve), jnp.linalg.norm(delta_u_solve)
-
-            self.print_solver_state(n, residual_error.ravel(), increment_error.ravel())
-
-            if residual_error < self.solver_input_block['residual_tolerance']:
-                print('Converged on residual: |R| = {0:.8e}'.format(residual_error.ravel()[0]))
-                break
-
-            if increment_error < self.solver_input_block['increment_tolerance']:
-                print('Converged on increment: |du| = {0:.8e}'.format(increment_error.ravel()[0]))
-                break
-
-        return u_solve
-
-    def print_solver_heading(self):
-        print('-----------------------------------------------------')
-        print('--- Time step %s' % 0)
-        print('-----------------------------------------------------')
-        print('Iteration\t\t|R|\t\t|du|')
-
-    def print_solver_state(self, increment, residual_error, increment_error):
-        print('\t{0:4}\t\t{1:.8e}\tt{2:.8e}'.format(increment, residual_error[0], increment_error[0]))
 
     def post_process_1d(self):
         import matplotlib.pyplot as plt

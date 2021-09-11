@@ -1,6 +1,7 @@
 import jax
 
 from pre_processing import GenesisMesh
+from solvers import NewtonRaphsonSolver
 from post_processing import PostProcessor
 import jax.numpy as jnp
 from jax import jit, partial
@@ -11,9 +12,12 @@ class Physics:
         self.n_dimensions = n_dimensions
         self.physics_input = physics_input
 
+        # grab some different blocks of the input deck
+        #
         self.mesh_input_block = self.physics_input['mesh']
         self.blocks_input_block = self.physics_input['blocks']
         self.boundary_conditions_input_block = self.physics_input['boundary_conditions']
+        self.solver_input_block = self.physics_input['solver']
         self.post_processing_block = self.physics_input['output']
 
         # read mesh input settings
@@ -29,6 +33,8 @@ class Physics:
         self.node_set_names = self.read_node_set_names()
         self.side_set_names = self.read_side_set_names()
 
+        # set the mesh
+        #
         self.genesis_mesh = self.set_genesis_mesh()
 
         # set up the post processor

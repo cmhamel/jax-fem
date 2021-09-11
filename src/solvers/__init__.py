@@ -1,1 +1,1 @@
-from .newton_raphson import newton_raphson_solver
+from .newton_raphson import NewtonRaphsonSolver
