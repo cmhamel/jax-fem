@@ -111,31 +111,26 @@ class QuadElement(ElementBaseClass):
     @partial(jit, static_argnums=(0,))
     def calculate_deriminant_of_jacobian_map(self, nodal_coordinates):
         J = self.calculate_jacobian_map(nodal_coordinates)
-        det_J = jnp.zeros((self.n_quadrature_points, 1), dtype=jnp.float64)
-        for q in range(self.n_quadrature_points):
-            # det_J = jnp.linalg.det(J)
-            det_J_q = jnp.linalg.det(J[q, :, :])
-            det_J = jax.ops.index_update(det_J, jax.ops.index[q, 0], det_J_q)
+        det_J = jnp.linalg.det(J)
         return det_J
+
+    @partial(jit, static_argnums=(0,))
+    def calculate_JxW(self, nodal_coordinates):
+        JxW = jnp.zeros((self.n_quadrature_points, 1), dtype=jnp.float64)
+        J = self.calculate_deriminant_of_jacobian_map(nodal_coordinates)
+        for q in range(self.n_quadrature_points):
+            JxW = jax.ops.index_update(JxW, jax.ops.index[q, 0], J[q] * self.w[q, 0])
+        return JxW
 
     @partial(jit, static_argnums=(0,))
     def map_shape_function_gradients(self, nodal_coordinates):
         J = self.calculate_jacobian_map(nodal_coordinates)
-        # J_inv = jnp.linalg.inv(J)
+        J_inv = jnp.linalg.inv(J)
         grad_N_X = jnp.zeros((self.n_quadrature_points, self.n_nodes, 2), dtype=jnp.float64)
-        # print()
         for q in range(self.n_quadrature_points):
             if self.shape_function_order == 1:
-                J_inv_q = jnp.linalg.inv(J)
-                grad_N_X_q = jnp.matmul(J_inv_q, self.grad_N_xi[q, :, :].T)
-                print(J_inv_q)
-                print(grad_N_X_q)
-                print(J_inv_q.shape)
-                print(grad_N_X_q.shape)
-
-                assert False
-                grad_N_X = jax.ops.index_add(grad_N_X, jax.ops.index[q, :, :],
-                                             jnp.matmul(J_inv[q, :, :], self.grad_N_xi.T).T)
+                grad_N_X_q = jnp.matmul(J_inv[q, :, :], self.grad_N_xi[q, :, :].T).T
+                grad_N_X = jax.ops.index_add(grad_N_X, jax.ops.index[q, :, :], grad_N_X_q)
 
         return grad_N_X
 

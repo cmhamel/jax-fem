@@ -77,7 +77,7 @@ class PoissonEquation(Physics):
         :return: the integrated element level residual vector
         """
         coords, u_nodal, source = nodal_fields
-        R_e = jnp.zeros((self.genesis_mesh.n_nodes_per_element[0], 1), dtype=jnp.float64)
+        R_e = jnp.zeros((self.genesis_mesh.n_nodes_per_element[0]), dtype=jnp.float64)
 
         def quadrature_calculation(q, R_element):
             """
@@ -90,10 +90,13 @@ class PoissonEquation(Physics):
             JxW = self.element_objects[0].calculate_JxW(coords)[q, 0]
 
             s_q = jnp.matmul(N_xi.T, source)
-            grad_u_q = jnp.matmul(grad_N_X.T, u_nodal)
-            
-            R_q = JxW * (s_q * N_xi - grad_u_q * grad_N_X)
-            R_element = jax.ops.index_add(R_element, jax.ops.index[:, :], R_q)
+            grad_u_q = jnp.matmul(grad_N_X.T, u_nodal).reshape((-1, 1))
+
+            # R_q = JxW * (s_q * N_xi - grad_u_q * grad_N_X)
+            R_q = JxW * (s_q * N_xi - jnp.matmul(grad_N_X, grad_u_q))
+
+            R_element = jax.ops.index_add(R_element, jax.ops.index[:], R_q[:, 0])
+
             return R_element
 
         R_e = jax.lax.fori_loop(0, self.element_objects[0].n_quadrature_points, quadrature_calculation, R_e)
@@ -104,7 +107,7 @@ class PoissonEquation(Physics):
 
         # set up residual and grab connectivity for convenience
         #
-        residual = jnp.zeros(self.genesis_mesh.nodal_coordinates[:, 0:1].shape, dtype=jnp.float64)
+        residual = jnp.zeros(self.genesis_mesh.nodal_coordinates[:, 0].shape, dtype=jnp.float64)
         connectivity = self.genesis_mesh.connectivity
 
         coordinates = self.genesis_mesh.nodal_coordinates[connectivity]
@@ -134,19 +137,22 @@ class PoissonEquation(Physics):
         residual, _ = jax.lax.fori_loop(0, len(self.dirichlet_bcs),
                                         enforce_bcs_on_residual, (residual, self.dirichlet_bcs_nodes))
 
-        return residual[:, 0]
+        return residual
 
     def solve(self):
 
         # jit the relevant methods
         #
-        jit_assemble_linear_system = jit(self.assemble_linear_system)
-        jit_tangent = jit(jacfwd(self.assemble_linear_system))
+        jit_assemble_linear_system = jit(self.assemble_linear_system)    # TODO problem with jit here
+                                                                         # TODO some nodal arrays are changing shape
+                                                                         # TODO every other iteration
+        jit_tangent = jit(jacfwd(self.assemble_linear_system))         # TODO problem is actually when tangent
+                                                                         # TODO is jitted
         jit_gmres = jit(jax.scipy.sparse.linalg.gmres)
 
         # initialize the solution vector
         #
-        u_solve = jnp.zeros(self.genesis_mesh.nodal_coordinates[:, 0:1].shape, dtype=jnp.float64)
+        u_solve = jnp.zeros(self.genesis_mesh.nodal_coordinates[:, 0].shape, dtype=jnp.float64)
         residual_solve = jnp.zeros_like(u_solve)
         delta_u_solve = jnp.zeros_like(u_solve)
 
@@ -164,9 +170,7 @@ class PoissonEquation(Physics):
             def enforce_bcs_on_u(i, input):
                 u_temp, bcs_nodes, bcs_values = input
                 bc_nodes, bc_values = bcs_nodes[i], bcs_values[i]
-                print(u_temp.shape)
-                print(bc_values.shape)
-                u_temp = jax.ops.index_update(u_temp, jax.ops.index[bc_nodes, 0], bc_values)
+                u_temp = jax.ops.index_update(u_temp, jax.ops.index[bc_nodes], bc_values)
                 return u_temp, bcs_nodes, bcs_values
 
             u, _, _ = jax.lax.fori_loop(0, len(self.dirichlet_bcs),
@@ -174,19 +178,21 @@ class PoissonEquation(Physics):
 
             # assemble the residual
             #
-            residual = jit_assemble_linear_system(u)
+            residual = jit_assemble_linear_system(u)  # TODO once the jit is fixed above uncomment this
             # residual = self.assemble_linear_system(u)
 
+            # assert False
             # calculate the tangent matrix using auto-differentiation
             #
             tangent = jit_tangent(residual)
+            # tangent = jacfwd(self.assemble_linear_system)(residual)
 
             # enforce dirichlet BCs in the tangent matrix
             #
             def enforce_bcs_on_tangent(i, input):
                 tangent_temp, bcs_nodes, bcs_values = input
                 bc_nodes, bc_values = bcs_nodes[i], bcs_values[i]
-                tangent_temp = jax.ops.index_update(tangent_temp, jax.ops.index[bc_nodes], bc_values)
+                tangent_temp = jax.ops.index_update(tangent_temp, jax.ops.index[bc_nodes, bc_nodes], 1.0)
                 return tangent_temp, bcs_nodes, bcs_values
 
             tangent, _, _ = jax.lax.fori_loop(0, len(self.dirichlet_bcs), enforce_bcs_on_tangent,
@@ -198,11 +204,11 @@ class PoissonEquation(Physics):
 
             # update the solution increment, note where the minus sign is
             #
-            u = jax.ops.index_add(u, jax.ops.index[:, 0], -delta_u)
+            u = jax.ops.index_add(u, jax.ops.index[:], -delta_u)
 
             # reshape the relevant arrays so they're all (n, 1)
             #
-            return residual.reshape((-1, 1)), delta_u.reshape((-1, 1)), u
+            return residual, delta_u, u
 
         # begin solver loop
         #
