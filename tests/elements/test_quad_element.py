@@ -103,3 +103,61 @@ def test_shape_function_values(quad_element_order_q1_p1,
     assert jnp.allclose(N_xi[3, 1, 0], 0.25 * (1.0 + xi[3, 0]) * (1.0 - xi[3, 1]))
     assert jnp.allclose(N_xi[3, 2, 0], 0.25 * (1.0 + xi[3, 0]) * (1.0 + xi[3, 1]))
     assert jnp.allclose(N_xi[3, 3, 0], 0.25 * (1.0 - xi[3, 0]) * (1.0 + xi[3, 1]))
+
+
+def test_shape_function_gradients(quad_element_order_q1_p1,
+                                  quad_element_order_q2_p1):
+
+    # p1 q1 element
+    #
+    grad_N_xi = quad_element_order_q1_p1.grad_N_xi
+    assert grad_N_xi.shape == (1, 4, 2)
+    assert jnp.allclose(grad_N_xi[0, 0, 0], -0.25)
+    assert jnp.allclose(grad_N_xi[0, 0, 1], -0.25)
+    assert jnp.allclose(grad_N_xi[0, 1, 0], 0.25)
+    assert jnp.allclose(grad_N_xi[0, 1, 1], -0.25)
+    assert jnp.allclose(grad_N_xi[0, 2, 0], 0.25)
+    assert jnp.allclose(grad_N_xi[0, 2, 1], 0.25)
+    assert jnp.allclose(grad_N_xi[0, 3, 0], -0.25)
+    assert jnp.allclose(grad_N_xi[0, 3, 1], 0.25)
+
+    # p1 q2 element
+    #
+    xi, w = quad_element_order_q2_p1.xi, quad_element_order_q2_p1.w
+    grad_N_xi = quad_element_order_q2_p1.grad_N_xi
+    assert grad_N_xi.shape == (4, 4, 2)
+    assert jnp.allclose(grad_N_xi[0, 0, 0], -0.25 * (1.0 - xi[0, 1]))
+    assert jnp.allclose(grad_N_xi[0, 0, 1], -0.25 * (1.0 - xi[0, 0]))
+    assert jnp.allclose(grad_N_xi[0, 1, 0], 0.25 * (1.0 - xi[0, 1]))
+    assert jnp.allclose(grad_N_xi[0, 1, 1], -0.25 * (1.0 + xi[0, 0]))
+    assert jnp.allclose(grad_N_xi[0, 2, 0], 0.25 * (1.0 + xi[0, 1]))
+    assert jnp.allclose(grad_N_xi[0, 2, 1], 0.25 * (1.0 + xi[0, 0]))
+    assert jnp.allclose(grad_N_xi[0, 3, 0], -0.25 * (1.0 + xi[0, 1]))
+    assert jnp.allclose(grad_N_xi[0, 3, 1], 0.25 * (1.0 - xi[0, 0]))
+    #
+    assert jnp.allclose(grad_N_xi[1, 0, 0], -0.25 * (1.0 - xi[1, 1]))
+    assert jnp.allclose(grad_N_xi[1, 0, 1], -0.25 * (1.0 - xi[1, 0]))
+    assert jnp.allclose(grad_N_xi[1, 1, 0], 0.25 * (1.0 - xi[1, 1]))
+    assert jnp.allclose(grad_N_xi[1, 1, 1], -0.25 * (1.0 + xi[1, 0]))
+    assert jnp.allclose(grad_N_xi[1, 2, 0], 0.25 * (1.0 + xi[1, 1]))
+    assert jnp.allclose(grad_N_xi[1, 2, 1], 0.25 * (1.0 + xi[1, 0]))
+    assert jnp.allclose(grad_N_xi[1, 3, 0], -0.25 * (1.0 + xi[1, 1]))
+    assert jnp.allclose(grad_N_xi[1, 3, 1], 0.25 * (1.0 - xi[1, 0]))
+    #
+    assert jnp.allclose(grad_N_xi[2, 0, 0], -0.25 * (1.0 - xi[2, 1]))
+    assert jnp.allclose(grad_N_xi[2, 0, 1], -0.25 * (1.0 - xi[2, 0]))
+    assert jnp.allclose(grad_N_xi[2, 1, 0], 0.25 * (1.0 - xi[2, 1]))
+    assert jnp.allclose(grad_N_xi[2, 1, 1], -0.25 * (1.0 + xi[2, 0]))
+    assert jnp.allclose(grad_N_xi[2, 2, 0], 0.25 * (1.0 + xi[2, 1]))
+    assert jnp.allclose(grad_N_xi[2, 2, 1], 0.25 * (1.0 + xi[2, 0]))
+    assert jnp.allclose(grad_N_xi[2, 3, 0], -0.25 * (1.0 + xi[2, 1]))
+    assert jnp.allclose(grad_N_xi[2, 3, 1], 0.25 * (1.0 - xi[2, 0]))
+    #
+    assert jnp.allclose(grad_N_xi[3, 0, 0], -0.25 * (1.0 - xi[3, 1]))
+    assert jnp.allclose(grad_N_xi[3, 0, 1], -0.25 * (1.0 - xi[3, 0]))
+    assert jnp.allclose(grad_N_xi[3, 1, 0], 0.25 * (1.0 - xi[3, 1]))
+    assert jnp.allclose(grad_N_xi[3, 1, 1], -0.25 * (1.0 + xi[3, 0]))
+    assert jnp.allclose(grad_N_xi[3, 2, 0], 0.25 * (1.0 + xi[3, 1]))
+    assert jnp.allclose(grad_N_xi[3, 2, 1], 0.25 * (1.0 + xi[3, 0]))
+    assert jnp.allclose(grad_N_xi[3, 3, 0], -0.25 * (1.0 + xi[3, 1]))
+    assert jnp.allclose(grad_N_xi[3, 3, 1], 0.25 * (1.0 - xi[3, 0]))

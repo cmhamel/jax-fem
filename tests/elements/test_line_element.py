@@ -84,3 +84,12 @@ def test_shape_function_gradients(line_element_order_q1_p1,
     assert grad_N_xi.shape == (1, 2, 1)
     assert jnp.allclose(grad_N_xi[0, 0, 0], -0.5)
     assert jnp.allclose(grad_N_xi[0, 1, 0], 0.5)
+
+    # p1 q2 element
+    #
+    grad_N_xi = line_element_order_q2_p1.grad_N_xi
+    assert grad_N_xi.shape == (2, 2, 1)
+    assert jnp.allclose(grad_N_xi[0, 0, 0], -0.5)
+    assert jnp.allclose(grad_N_xi[0, 1, 0], 0.5)
+    assert jnp.allclose(grad_N_xi[1, 0, 0], -0.5)
+    assert jnp.allclose(grad_N_xi[1, 1, 0], 0.5)

@@ -79,6 +79,14 @@ class LineElement(ElementBaseClass):
         return element_length / 2.0
 
     @partial(jit, static_argnums=(0,))
+    def calculate_JxW(self, nodal_coordinates):
+        det_J = self.calculate_deriminant_of_jacobian_map(nodal_coordinates)
+        JxW = jnp.zeros((self.n_quadrature_points, 1), dtype=jnp.float64)
+        for q in range(self.n_quadrature_points):
+            JxW = jax.ops.index_update(JxW, jax.ops.index[q, 0], det_J * self.w[q, 0])
+        return JxW
+
+    @partial(jit, static_argnums=(0,))
     def calculate_deriminant_of_jacobian_map(self, nodal_coordinates):
         element_length = jnp.abs(nodal_coordinates[0, 0] - nodal_coordinates[-1, 0])
         return element_length / 2.0

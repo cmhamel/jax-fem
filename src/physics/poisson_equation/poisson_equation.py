@@ -4,7 +4,7 @@ from pre_processing import GenesisMesh
 from ..physics import Physics
 from ..boundary_conditions import DirichletBoundaryCondition
 from ..source import Source
-from elements import LineElement
+from elements import LineElement, QuadElement
 import jax.numpy as jnp
 from jax import jacfwd, jit, partial, vmap
 import jax
@@ -45,6 +45,10 @@ class PoissonEquation(Physics):
                 self.element_objects.append(
                     LineElement(quadrature_order=block['cell_interpolation']['quadrature_order'],
                                 shape_function_order=block['cell_interpolation']['shape_function_order']))
+            elif self.n_dimensions == 2:
+                self.element_objects.append(
+                    QuadElement(quadrature_order=block['cell_interpolation']['quadrature_order'],
+                                shape_function_order=block['cell_interpolation']['shape_function_order']))
             else:
                 try:
                     assert False
@@ -83,12 +87,12 @@ class PoissonEquation(Physics):
             """
             N_xi = self.element_objects[0].N_xi[q, :, :]
             grad_N_X = self.element_objects[0].map_shape_function_gradients(coords)[q, :, :]
-            J = self.element_objects[0].calculate_deriminant_of_jacobian_map(coords)
-            w = self.element_objects[0].w[q, 0]
+            JxW = self.element_objects[0].calculate_JxW(coords)[q, 0]
 
             s_q = jnp.matmul(N_xi.T, source)
             grad_u_q = jnp.matmul(grad_N_X.T, u_nodal)
-            R_q = J * w * (s_q * N_xi - grad_u_q * grad_N_X)
+            
+            R_q = JxW * (s_q * N_xi - grad_u_q * grad_N_X)
             R_element = jax.ops.index_add(R_element, jax.ops.index[:, :], R_q)
             return R_element
 
@@ -100,7 +104,7 @@ class PoissonEquation(Physics):
 
         # set up residual and grab connectivity for convenience
         #
-        residual = jnp.zeros(self.genesis_mesh.nodal_coordinates.shape, dtype=jnp.float64)
+        residual = jnp.zeros(self.genesis_mesh.nodal_coordinates[:, 0:1].shape, dtype=jnp.float64)
         connectivity = self.genesis_mesh.connectivity
 
         coordinates = self.genesis_mesh.nodal_coordinates[connectivity]
@@ -142,10 +146,9 @@ class PoissonEquation(Physics):
 
         # initialize the solution vector
         #
-        u_solve = jnp.zeros(self.genesis_mesh.nodal_coordinates.shape, dtype=jnp.float64)
+        u_solve = jnp.zeros(self.genesis_mesh.nodal_coordinates[:, 0:1].shape, dtype=jnp.float64)
         residual_solve = jnp.zeros_like(u_solve)
         delta_u_solve = jnp.zeros_like(u_solve)
-        # u = jnp.zeros(self.genesis_mesh.nodal_coordinates.shape, dtype=jnp.float64)
 
         # begin loop over non-linear iterations
         #
@@ -161,7 +164,9 @@ class PoissonEquation(Physics):
             def enforce_bcs_on_u(i, input):
                 u_temp, bcs_nodes, bcs_values = input
                 bc_nodes, bc_values = bcs_nodes[i], bcs_values[i]
-                u_temp = jax.ops.index_update(u_temp, jax.ops.index[bc_nodes], bc_values)
+                print(u_temp.shape)
+                print(bc_values.shape)
+                u_temp = jax.ops.index_update(u_temp, jax.ops.index[bc_nodes, 0], bc_values)
                 return u_temp, bcs_nodes, bcs_values
 
             u, _, _ = jax.lax.fori_loop(0, len(self.dirichlet_bcs),

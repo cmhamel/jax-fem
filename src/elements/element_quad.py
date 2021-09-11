@@ -18,6 +18,7 @@ class QuadElement(ElementBaseClass):
 
         self.n_quadrature_points = self.quadrature_order**2
         self.n_nodes = (shape_function_order + 1)**2
+        self.n_dimensions = 2
 
         assert self.quadrature_order > 0
         assert self.n_nodes > 2
@@ -61,15 +62,14 @@ class QuadElement(ElementBaseClass):
         N_xi = jnp.zeros((self.n_quadrature_points, self.n_nodes, 1), dtype=jnp.float64)
         for q in range(self.n_quadrature_points):
             if self.shape_function_order == 1:
-                print(self.xi[:, 0].ravel())
                 N_xi = jax.ops.index_update(N_xi, jax.ops.index[q, 0, 0],
-                                            0.25 * (1.0 - self.xi[q, 0])) * (1.0 - self.xi[q, 1])
+                                            0.25 * (1.0 - self.xi[q, 0]) * (1.0 - self.xi[q, 1]))
                 N_xi = jax.ops.index_update(N_xi, jax.ops.index[q, 1, 0],
-                                            0.25 * (1.0 + self.xi[q, 0])) * (1.0 - self.xi[q, 1])
+                                            0.25 * (1.0 + self.xi[q, 0]) * (1.0 - self.xi[q, 1]))
                 N_xi = jax.ops.index_update(N_xi, jax.ops.index[q, 2, 0],
-                                            0.25 * (1.0 + self.xi[q, 0])) * (1.0 + self.xi[q, 1])
+                                            0.25 * (1.0 + self.xi[q, 0]) * (1.0 + self.xi[q, 1]))
                 N_xi = jax.ops.index_update(N_xi, jax.ops.index[q, 3, 0],
-                                            0.25 * (1.0 - self.xi[q, 0])) * (1.0 + self.xi[q, 1])
+                                            0.25 * (1.0 - self.xi[q, 0]) * (1.0 + self.xi[q, 1]))
             else:
                 # don't need to check this in shape function gradients since it's already
                 # checked here
@@ -77,13 +77,13 @@ class QuadElement(ElementBaseClass):
                 try:
                     assert False
                 except AssertionError:
-                    raise Exception('Unsupported shape function order in LineElement')
+                    raise Exception('Unsupported shape function order in QuadElement')
 
         return N_xi
 
     @partial(jit, static_argnums=(0,))
     def _calculate_shape_function_gradients(self):
-        grad_N_xi = jnp.zeros((self.n_quadrature_points, self.n_nodes, 1), dtype=jnp.float64)
+        grad_N_xi = jnp.zeros((self.n_quadrature_points, self.n_nodes, self.n_dimensions), dtype=jnp.float64)
         for q in range(self.n_quadrature_points):
             if self.shape_function_order == 1:
                 grad_N_xi = jax.ops.index_update(grad_N_xi, jax.ops.index[q, 0, 0], -0.25 * (1.0 - self.xi[q, 1]))
@@ -99,3 +99,43 @@ class QuadElement(ElementBaseClass):
                 grad_N_xi = jax.ops.index_update(grad_N_xi, jax.ops.index[q, 3, 1], 0.25 * (1.0 - self.xi[q, 0]))
 
         return grad_N_xi
+
+    @partial(jit, static_argnums=(0,))
+    def calculate_jacobian_map(self, nodal_coordinates):
+        J = jnp.zeros((self.n_quadrature_points, 2, 2), dtype=jnp.float64)
+        for q in range(self.n_quadrature_points):
+            J_q = jnp.matmul(self.grad_N_xi[q, :, :].T, nodal_coordinates)
+            J = jax.ops.index_update(J, jax.ops.index[q, :, :], J_q)
+        return J
+
+    @partial(jit, static_argnums=(0,))
+    def calculate_deriminant_of_jacobian_map(self, nodal_coordinates):
+        J = self.calculate_jacobian_map(nodal_coordinates)
+        det_J = jnp.zeros((self.n_quadrature_points, 1), dtype=jnp.float64)
+        for q in range(self.n_quadrature_points):
+            # det_J = jnp.linalg.det(J)
+            det_J_q = jnp.linalg.det(J[q, :, :])
+            det_J = jax.ops.index_update(det_J, jax.ops.index[q, 0], det_J_q)
+        return det_J
+
+    @partial(jit, static_argnums=(0,))
+    def map_shape_function_gradients(self, nodal_coordinates):
+        J = self.calculate_jacobian_map(nodal_coordinates)
+        # J_inv = jnp.linalg.inv(J)
+        grad_N_X = jnp.zeros((self.n_quadrature_points, self.n_nodes, 2), dtype=jnp.float64)
+        # print()
+        for q in range(self.n_quadrature_points):
+            if self.shape_function_order == 1:
+                J_inv_q = jnp.linalg.inv(J)
+                grad_N_X_q = jnp.matmul(J_inv_q, self.grad_N_xi[q, :, :].T)
+                print(J_inv_q)
+                print(grad_N_X_q)
+                print(J_inv_q.shape)
+                print(grad_N_X_q.shape)
+
+                assert False
+                grad_N_X = jax.ops.index_add(grad_N_X, jax.ops.index[q, :, :],
+                                             jnp.matmul(J_inv[q, :, :], self.grad_N_xi.T).T)
+
+        return grad_N_X
+
