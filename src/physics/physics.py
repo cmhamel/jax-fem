@@ -16,7 +16,11 @@ class Physics:
         #
         self.mesh_input_block = self.physics_input['mesh']
         self.blocks_input_block = self.physics_input['blocks']
-        self.boundary_conditions_input_block = self.physics_input['boundary_conditions']
+        try:
+            self.boundary_conditions_input_block = self.physics_input['boundary_conditions']
+        except KeyError:
+            self.boundary_conditions_input_block = {}
+
         self.solver_input_block = self.physics_input['solver']
         self.post_processing_block = self.physics_input['output']
 
