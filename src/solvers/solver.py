@@ -14,14 +14,14 @@ class Solver:
 
     @staticmethod
     def print_solver_heading(time_step):
-        print('-----------------------------------------------------')
+        print('-------------------------------------------------------')
         print('--- Time step %s' % time_step)
-        print('-----------------------------------------------------')
+        print('-------------------------------------------------------')
         print('Iteration\t\t|R|\t\t|du|')
 
     @staticmethod
     def print_solver_state(increment, residual_error, increment_error):
-        print('\t{0:4}\t\t{1:.8e}\tt{2:.8e}'.format(increment, residual_error[0], increment_error[0]))
+        print('\t{0:4}\t\t{1:.8e}\t{2:.8e}'.format(increment, residual_error[0], increment_error[0]))
 
 
 

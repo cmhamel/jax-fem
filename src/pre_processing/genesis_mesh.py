@@ -44,14 +44,15 @@ class GenesisMesh(Mesh):
         # check to make sure the node sets and side sets are valid
         #
         if len(self.node_sets) > 0:
-            exo_node_set_names = self.exo.get_node_set_names()
             for node_set in self.node_sets:
-                assert node_set in exo_node_set_names
+                assert node_set in self.exo.get_node_set_ids()
 
-        if len(self.side_sets) > 0:
-            exo_side_set_names = self.exo.get_side_set_names()
-            for side_set in self.side_sets:
-                assert side_set in exo_side_set_names
+        # TODO: fix the below to use numbers instead of names
+        #
+        # if len(self.side_sets) > 0:
+        #     exo_side_set_names = self.exo.get_side_set_names()
+        #     for side_set in self.side_sets:
+        #         assert side_set in exo_side_set_names
 
         # initialize mesh arrays
         #
@@ -139,12 +140,10 @@ class GenesisMesh(Mesh):
         return connectivity
 
     def read_node_set_nodes(self):
-        exo_node_set_names = self.exo.get_node_set_names()
-        exo_node_set_ids = self.exo.get_node_set_ids()
         node_set_nodes = []
         for node_set in self.node_sets:
-            id = exo_node_set_ids[exo_node_set_names.index(node_set)]
-            node_set_nodes.append(self.exo.get_node_set_nodes(id) - 1)
+            node_set_nodes.append(self.exo.get_node_set_nodes(node_set) - 1)
+
         return node_set_nodes
 
     def read_side_set_elements_and_faces(self):

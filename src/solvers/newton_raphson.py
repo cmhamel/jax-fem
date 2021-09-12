@@ -21,6 +21,8 @@ class NewtonRaphsonSolver(Solver):
 
         if self.solver_input_block['linear_solver'].lower() == 'gmres':
             self.linear_solver = jit(jax.scipy.sparse.linalg.gmres)
+        elif self.solver_input_block['linear_solver'].lower() == 'cg':
+            self.linear_solver = jit(jax.scipy.sparse.linalg.cg)
         else:
             try:
                 assert False
@@ -52,7 +54,6 @@ class NewtonRaphsonSolver(Solver):
                                             (u, dirichlet_bcs_nodes, dirichlet_bcs_values))
 
                 residual = self.assemble_linear_system(u)
-                # tangent = self.tangent_function(residual)
                 tangent = self.tangent_function(u)
 
                 tangent, _, _ = jax.lax.fori_loop(0, len(dirichlet_bcs_nodes), self.apply_dirichlet_bcs_to_tangent_func,
@@ -60,7 +61,8 @@ class NewtonRaphsonSolver(Solver):
 
                 # solve for solution increment
                 #
-                delta_u, _ = self.linear_solver(tangent, residual)
+                delta_u, _ = self.linear_solver(tangent, residual,
+                                                maxiter=self.solver_input_block['maximum_linear_solver_iterations'])
 
                 # update the solution increment, note where the minus sign is
                 #

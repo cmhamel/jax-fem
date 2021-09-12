@@ -4,15 +4,16 @@ from jax import jit
 from elements import LineElement
 from elements import QuadElement
 from solvers import NewtonRaphsonSolver
+# from solvers import NewtonRaphsonTransientSolver
 from ..physics import Physics
 from ..boundary_conditions import DirichletBoundaryCondition
 from ..boundary_conditions import NeumannBoundaryCondition
 from ..constitutive_models import FouriersLaw
 
 
-class SteadyStateHeatConduction(Physics):
+class TransientHeatConduction(Physics):
     def __init__(self, n_dimensions, mesh_input):
-        super(SteadyStateHeatConduction, self).__init__(n_dimensions, mesh_input)
+        super(TransientHeatConduction, self).__init__(n_dimensions, mesh_input)
         print(self)
 
         # set number of degress of freedom per node
@@ -88,64 +89,55 @@ class SteadyStateHeatConduction(Physics):
         #
         u_0 = jnp.zeros(len(self.genesis_mesh.nodal_coordinates[:, 0] * self.n_dof_per_node),
                         dtype=jnp.float64)
+        self.u_old = jnp.zeros(len(self.genesis_mesh.nodal_coordinates[:, 0] * self.n_dof_per_node),
+                               dtype=jnp.float64)
 
         self.time_control_block = self.physics_input['time_control']
         print(self.time_control_block)
 
-        if self.time_control_block['type'].lower() == 'static':
-            self.u = self.solver.solve(0, u_0, self.dirichlet_bcs_nodes, self.dirichlet_bcs_values)
-
-            if n_dimensions == 1:
-                self.post_process_1d()
-            elif n_dimensions == 2:
-                self.post_process_2d(1, 0.0)
-                self.post_processor.exo.close()
-            else:
-                try:
-                    assert False
-                except AssertionError:
-                    raise Exception('Unsupported number of dimensions to postprocess')
-        elif self.time_control_block['type'].lower() == 'quasi_static':
-            t_0 = self.time_control_block['time_initial']
-            t_end = self.time_control_block['time_end']
-            delta_t = self.time_control_block['time_increment']
+        if self.time_control_block['type'].lower() == 'transient':
+            self.t_0 = self.time_control_block['time_initial']
+            self.t_end = self.time_control_block['time_end']
+            self.delta_t = self.time_control_block['time_increment']
 
             for n in range(len(self.dirichlet_bcs)):
-                self.dirichlet_bcs[n].time_end = t_end
+                self.dirichlet_bcs[n].time_end = self.t_end
 
             # loop over time
             #
-            t = t_0
+            self.t = self.t_0
             time_step = 0
-            while t < t_end:
+            while self.t < self.t_end:
 
                 # update dirichlet bcs
                 #
                 for n in range(len(self.dirichlet_bcs)):
-                    temp_values = self.dirichlet_bcs[n].update_bc_values(time=t)
+                    temp_values = self.dirichlet_bcs[n].update_bc_values(time=self.t)
                     self.dirichlet_bcs_values = jax.ops.index_update(self.dirichlet_bcs_values, jax.ops.index[n, :],
                                                                      temp_values)
                 # now solve
                 #
                 self.u = self.solver.solve(time_step, u_0, self.dirichlet_bcs_nodes, self.dirichlet_bcs_values)
 
+                # update
+                #
+                u_0 = self.u
+                self.u_old = u_0
+
+                time_step = time_step + 1
+                self.t = self.t + self.delta_t
+
                 # post-process
                 #
                 if n_dimensions == 1:
                     self.post_process_1d()
                 elif n_dimensions == 2:
-                    self.post_process_2d(time_step + 1, t)
+                    self.post_process_2d(time_step, self.t)
                 else:
                     try:
                         assert False
                     except AssertionError:
                         raise Exception('Unsupported number of dimensions to postprocess')
-
-                # update
-                #
-                u_0 = self.u
-                time_step = time_step + 1
-                t = t + delta_t
 
             self.post_processor.exo.close()
 
@@ -179,7 +171,7 @@ class SteadyStateHeatConduction(Physics):
         :param nodal_fields: relevant nodal fields
         :return: the integrated element level residual vector
         """
-        coords, theta_nodal = nodal_fields
+        coords, theta_nodal, theta_nodal_old = nodal_fields
         R_e = jnp.zeros((self.genesis_mesh.n_nodes_per_element[0]), dtype=jnp.float64)
 
         def quadrature_calculation(q, R_element):
@@ -188,15 +180,19 @@ class SteadyStateHeatConduction(Physics):
             :param R_element: the element level residual
             :return: the element level residual for this quadrature point only
             """
-            # N_xi = self.element_objects[0].N_xi[q, :, :]
+            N_xi = self.element_objects[0].N_xi[q, :, :]
             grad_N_X = self.element_objects[0].map_shape_function_gradients(coords)[q, :, :]
             JxW = self.element_objects[0].calculate_JxW(coords)[q, 0]
 
+            theta_q = jnp.matmul(theta_nodal, N_xi)
+            theta_q_old = jnp.matmul(theta_nodal_old, N_xi)
+            theta_dot_q = (theta_q - theta_q_old) / self.delta_t
             grad_theta_q = jnp.matmul(grad_N_X.T, theta_nodal).reshape((-1, 1))
+
             q_q = self.constitutive_models[0].calculate_heat_conduction(grad_theta_q)
 
-            # R_q = -JxW * jnp.matmul(grad_N_X, grad_theta_q)
-            R_q = JxW * jnp.matmul(grad_N_X, q_q)
+            R_q = JxW * theta_dot_q * N_xi - \
+                  JxW * jnp.matmul(grad_N_X, q_q)
             R_element = jax.ops.index_add(R_element, jax.ops.index[:], R_q[:, 0])
 
             return R_element
@@ -214,6 +210,7 @@ class SteadyStateHeatConduction(Physics):
 
         coordinates = self.genesis_mesh.nodal_coordinates[connectivity]
         theta_element_wise = u[connectivity]
+        theta_element_wise_old = self.u_old[connectivity]
 
         # jit the element level residual calculator
         #
@@ -221,7 +218,8 @@ class SteadyStateHeatConduction(Physics):
 
         def element_calculation(e, input):
             residual_temp = input
-            R_e = jit_calculate_element_level_residual((coordinates[e], theta_element_wise[e]))
+            R_e = jit_calculate_element_level_residual((coordinates[e],
+                                                        theta_element_wise[e], theta_element_wise_old[e]))
             residual_temp = jax.ops.index_add(residual_temp, jax.ops.index[connectivity[e]], R_e)
             return residual_temp
 

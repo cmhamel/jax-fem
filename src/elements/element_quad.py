@@ -83,8 +83,10 @@ class QuadElement(ElementBaseClass):
 
     @partial(jit, static_argnums=(0,))
     def _calculate_shape_function_gradients(self):
-        grad_N_xi = jnp.zeros((self.n_quadrature_points, self.n_nodes, self.n_dimensions), dtype=jnp.float64)
-        for q in range(self.n_quadrature_points):
+        grad_N_xi_return = jnp.zeros((self.n_quadrature_points, self.n_nodes, self.n_dimensions), dtype=jnp.float64)
+
+        def loop_function(q, values):
+            grad_N_xi = values
             if self.shape_function_order == 1:
                 grad_N_xi = jax.ops.index_update(grad_N_xi, jax.ops.index[q, 0, 0], -0.25 * (1.0 - self.xi[q, 1]))
                 grad_N_xi = jax.ops.index_update(grad_N_xi, jax.ops.index[q, 0, 1], -0.25 * (1.0 - self.xi[q, 0]))
@@ -97,16 +99,24 @@ class QuadElement(ElementBaseClass):
                 #
                 grad_N_xi = jax.ops.index_update(grad_N_xi, jax.ops.index[q, 3, 0], -0.25 * (1.0 + self.xi[q, 1]))
                 grad_N_xi = jax.ops.index_update(grad_N_xi, jax.ops.index[q, 3, 1], 0.25 * (1.0 - self.xi[q, 0]))
+            return grad_N_xi
 
-        return grad_N_xi
+        grad_N_xi_return = jax.lax.fori_loop(0, self.n_quadrature_points, loop_function, grad_N_xi_return)
+        return grad_N_xi_return
 
     @partial(jit, static_argnums=(0,))
     def calculate_jacobian_map(self, nodal_coordinates):
-        J = jnp.zeros((self.n_quadrature_points, 2, 2), dtype=jnp.float64)
-        for q in range(self.n_quadrature_points):
+        J_return = jnp.zeros((self.n_quadrature_points, 2, 2), dtype=jnp.float64)
+
+        def loop_function(q, values):
+            J = values
             J_q = jnp.matmul(self.grad_N_xi[q, :, :].T, nodal_coordinates)
             J = jax.ops.index_update(J, jax.ops.index[q, :, :], J_q)
-        return J
+            return J
+
+        J_return = jax.lax.fori_loop(0, self.n_quadrature_points, loop_function, J_return)
+
+        return J_return
 
     @partial(jit, static_argnums=(0,))
     def calculate_deriminant_of_jacobian_map(self, nodal_coordinates):
@@ -116,11 +126,17 @@ class QuadElement(ElementBaseClass):
 
     @partial(jit, static_argnums=(0,))
     def calculate_JxW(self, nodal_coordinates):
-        JxW = jnp.zeros((self.n_quadrature_points, 1), dtype=jnp.float64)
+        JxW_return = jnp.zeros((self.n_quadrature_points, 1), dtype=jnp.float64)
         J = self.calculate_deriminant_of_jacobian_map(nodal_coordinates)
-        for q in range(self.n_quadrature_points):
+
+        def loop_function(q, values):
+            JxW = values
             JxW = jax.ops.index_update(JxW, jax.ops.index[q, 0], J[q] * self.w[q, 0])
-        return JxW
+            return JxW
+
+        JxW_return = jax.lax.fori_loop(0, self.n_quadrature_points, loop_function, JxW_return)
+
+        return JxW_return
 
     @partial(jit, static_argnums=(0,))
     def map_shape_function_gradients(self, nodal_coordinates):

@@ -4,6 +4,7 @@ from art import tprint
 import argparse
 from physics import PoissonEquation
 from physics import SteadyStateHeatConduction
+from physics import TransientHeatConduction
 from jax.config import config
 config.update("jax_enable_x64", True)
 
@@ -46,7 +47,8 @@ if __name__ == '__main__':
                 heat_transfer = SteadyStateHeatConduction(n_dimensions,
                                                           physics[key])
             elif time_dependence == 'transient':
-                assert False, 'not supported yet'
+                heat_transfer = TransientHeatConduction(n_dimensions,
+                                                        physics[key])
             else:
                 assert False
         elif key.lower() == 'solid_mechanics':
