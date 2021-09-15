@@ -29,10 +29,9 @@ class TransientHeatConduction(Physics):
             bc_type = self.boundary_conditions_input_block[key]
             for i, bc in enumerate(bc_type):
                 self.dirichlet_bcs.append(
-                    DirichletBoundaryCondition(node_set_name=bc['node_set'],
-                                               node_set_nodes=self.genesis_mesh.node_set_nodes[i],
-                                               bc_type=bc['type'].lower(),
-                                               value=bc['value']))
+                    DirichletBoundaryCondition(dirichlet_bc_input_block=bc,
+                                               node_set_name=bc['node_set'],
+                                               node_set_nodes=self.genesis_mesh.node_set_nodes[i]))
                 self.dirichlet_bcs_nodes.append(self.dirichlet_bcs[i].node_set_nodes)
                 self.dirichlet_bcs_values.append(self.dirichlet_bcs[i].values)
 

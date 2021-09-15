@@ -4,7 +4,9 @@ from art import tprint
 import argparse
 from physics import PoissonEquation
 from physics import SteadyStateHeatConduction
+from physics import RadiativeTransfer
 from physics import TransientHeatConduction
+from physics import SpeciesTransport
 from physics import CahnHilliard
 from jax.config import config
 config.update("jax_enable_x64", True)
@@ -58,7 +60,14 @@ if __name__ == '__main__':
                     assert False
                 except AssertionError:
                     raise Exception('Unsupported time dependence')
-
+        elif key.lower() == 'radiative_transfer':
+            tprint('radiative transfer')
+            radiative_transfer = RadiativeTransfer(n_dimensions,
+                                                   physics[key])
+        elif key.lower() == 'species_transport':
+            tprint('species transport')
+            species_transport = SpeciesTransport(n_dimensions,
+                                                 physics[key])
         elif key.lower() == 'cahn_hilliard':
             tprint('cahn-hilliard')
             cahn_hilliard = CahnHilliard(n_dimensions,
