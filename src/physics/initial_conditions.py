@@ -17,7 +17,7 @@ class InitialCondition:
 
         if ic_type == 'constant':
             assert self.value is not None
-            self.values = self.value * jnp.zeros(self.block_nodes.shape[0], jnp.float64)
+            self.values = self.value * jnp.ones(self.block_nodes.shape[0], jnp.float64)
         elif ic_type == 'function':
             assert self.function is not None
             # self.values = jnp.zeros(self.block_nodes.shape[0], dtype=jnp.float64)

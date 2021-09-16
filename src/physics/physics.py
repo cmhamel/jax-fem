@@ -21,7 +21,18 @@ class Physics:
         except KeyError:
             self.boundary_conditions_input_block = {}
 
-        self.solver_input_block = self.physics_input['solver']
+        try:
+            self.initial_conditions_input_block = self.physics_input['initial_conditions']
+        except KeyError:
+            self.initial_conditions_input_block = {}
+
+        # if explicit we don't have a solver block
+        #
+        try:
+            self.solver_input_block = self.physics_input['solver']
+        except KeyError:
+            self.solver_input_block = None
+
         self.post_processing_block = self.physics_input['output']
 
         # read mesh input settings

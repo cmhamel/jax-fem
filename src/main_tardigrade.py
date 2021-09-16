@@ -7,7 +7,9 @@ from physics import SteadyStateHeatConduction
 from physics import RadiativeTransfer
 from physics import TransientHeatConduction
 from physics import SpeciesTransport
+from physics import ExplicitSpeciesTransport
 from physics import CahnHilliard
+from applications import PhotoChemistry
 from jax.config import config
 config.update("jax_enable_x64", True)
 
@@ -37,7 +39,14 @@ if __name__ == '__main__':
             raise Exception('Error in input file')
 
     n_dimensions = input_settings['number_of_dimensions']
+    application = input_settings['application']
     physics = input_settings['physics']
+
+    if application == 'photo_chemistry':
+        PhotoChemistry(n_dimensions, physics)
+
+    import sys
+    sys.exit()
 
     for key in physics.keys():
         if key.lower() == 'poisson_equation':
@@ -66,8 +75,10 @@ if __name__ == '__main__':
                                                    physics[key])
         elif key.lower() == 'species_transport':
             tprint('species transport')
-            species_transport = SpeciesTransport(n_dimensions,
-                                                 physics[key])
+            # species_transport = SpeciesTransport(n_dimensions,
+            #                                      physics[key])
+            species_transport = ExplicitSpeciesTransport(n_dimensions,
+                                                         physics[key])
         elif key.lower() == 'cahn_hilliard':
             tprint('cahn-hilliard')
             cahn_hilliard = CahnHilliard(n_dimensions,

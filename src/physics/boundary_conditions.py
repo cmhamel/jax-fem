@@ -35,13 +35,13 @@ class DirichletBoundaryCondition(BoundaryCondition):
         self.values = self.update_bc_values()
         
     def update_bc_values(self, time=0.0):
-        if self.bc_type == 'constant':
+        if self.bc_type.lower() == 'constant':
             scale = self.dirichlet_bc_input_block['value']
             values = scale * jnp.ones(self.node_set_nodes.shape, dtype=jnp.float64)
-        elif self.bc_type == 'ramp':
+        elif self.bc_type.lower() == 'ramp':
             scale = self.dirichlet_bc_input_block['value']
             values = scale * (time / self.time_end) * jnp.ones(self.node_set_nodes.shape, dtype=jnp.float64)
-        elif self.bc_type == 'gaussian':
+        elif self.bc_type.lower() == 'gaussian':
             beam_amplitude = self.dirichlet_bc_input_block['beam_amplitude']
             beam_dimater = self.dirichlet_bc_input_block['beam_diameter']
             beam_center = self.dirichlet_bc_input_block['beam_center']

@@ -72,25 +72,28 @@ class RadiativeTransfer(Physics):
             print('\td     = %s' % self.ds[n])
             print('\tsigma = %s' % self.sigmas[n])
 
-            # set up a solver
-            #
-            self.solver = NewtonRaphsonSolver(self.solver_input_block,
-                                              len(self.genesis_mesh.nodal_coordinates),
-                                              1,
-                                              self.genesis_mesh.connectivity,
-                                              self.enforce_bcs_on_u,
-                                              self.enforce_bcs_on_residual,
-                                              self.enforce_bcs_on_tangent,
-                                              self.assemble_linear_system)
+        # set up a solver
+        #
+        self.solver = NewtonRaphsonSolver(self.solver_input_block,
+                                          len(self.genesis_mesh.nodal_coordinates),
+                                          1,
+                                          self.genesis_mesh.connectivity,
+                                          self.enforce_bcs_on_u,
+                                          self.enforce_bcs_on_residual,
+                                          self.enforce_bcs_on_tangent,
+                                          self.assemble_linear_system)
 
-            # make an initial guess on the solution
-            #
-            u_0 = jnp.zeros(len(self.genesis_mesh.nodal_coordinates[:, 0] * self.n_dof_per_node),
-                            dtype=jnp.float64)
+        self.u = jnp.zeros(len(self.genesis_mesh.nodal_coordinates[:, 0] * self.n_dof_per_node))
+        self.I = jnp.zeros(len(self.genesis_mesh.nodal_coordinates[:, 0] * self.n_dof_per_node))
 
-            self.u = self.solver.solve(0, u_0, self.dirichlet_bcs_nodes, self.dirichlet_bcs_values)
-            self.I = self.u
-            self.post_process_2d(1, 0.0)
+    def solve(self, time_step=0, time=0.0):
+        # make an initial guess on the solution
+        #
+        u_0 = jnp.zeros(len(self.genesis_mesh.nodal_coordinates[:, 0] * self.n_dof_per_node),
+                        dtype=jnp.float64)
+        self.u = self.solver.solve(time_step, u_0, self.dirichlet_bcs_nodes, self.dirichlet_bcs_values)
+        self.I = self.u
+        self.post_process_2d(time_step, time)
 
     @staticmethod
     def enforce_bcs_on_u(i, input):
@@ -116,7 +119,6 @@ class RadiativeTransfer(Physics):
         bc_nodes, bc_values = bcs_nodes[i], bcs_values[i]
         tangent_temp = jax.ops.index_update(tangent_temp, jax.ops.index[bc_nodes, bc_nodes], 1.0)
         return tangent_temp, bcs_nodes, bcs_values
-
 
     def supg_factor(self, coords):
 
@@ -170,9 +172,12 @@ class RadiativeTransfer(Physics):
         """
         coords, I_nodal = nodal_fields
         R_e = jnp.zeros((self.genesis_mesh.n_nodes_per_element[0]), dtype=jnp.float64)
-        # supg = self.supg_factor(coords)
-        # supg = 0.025 / 2
         supg = self.blocks_input_block[0]['radiative_transfer_properties']['h'] / 2
+
+        # pre-calculate gradient of shape functions and JxW before loop
+        #
+        grad_N_X_element = self.element_objects[0].map_shape_function_gradients(coords)
+        JxW_element = self.element_objects[0].calculate_JxW(coords)
 
         def quadrature_calculation(q, R_element):
             """
@@ -181,8 +186,8 @@ class RadiativeTransfer(Physics):
             :return: the element level residual for this quadrature point only
             """
             N_xi = self.element_objects[0].N_xi[q, :, :]
-            grad_N_X = self.element_objects[0].map_shape_function_gradients(coords)[q, :, :]
-            JxW = self.element_objects[0].calculate_JxW(coords)[q, 0]
+            grad_N_X = grad_N_X_element[q, :, :]
+            JxW = JxW_element[q, 0]
 
             I_q = jnp.matmul(I_nodal, N_xi)
             grad_I_q = jnp.matmul(grad_N_X.T, I_nodal).reshape((-1, 1))

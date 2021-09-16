@@ -3,6 +3,7 @@ from exodus3 import exodus
 import jax.numpy as jnp
 import numpy as np
 import os
+from util import SuppressStdOutput
 
 
 class PostProcessor:
@@ -12,7 +13,8 @@ class PostProcessor:
         self.post_processor_input_block = post_processor_input_block
         self.output_file = self.post_processor_input_block['exodus_database']
 
-        self.exo = self.initialize_exodus_output_database()
+        with SuppressStdOutput(suppress_stdout=True, suppress_stderr=False):
+            self.exo = self.initialize_exodus_output_database()
 
         try:
             self.nodal_output_variables = \
@@ -29,6 +31,7 @@ class PostProcessor:
         # it to name of the output exodus file
         #
         os.system('rm -f ' + self.output_file)
+
         mesh_exo = exodus(self.genesis_mesh.genesis_file)
         exo = mesh_exo.copy(self.output_file)
         return exo

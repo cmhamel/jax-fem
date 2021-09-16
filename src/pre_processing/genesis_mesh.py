@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import exodus3
 from exodus3 import exodus
 from .mesh import Mesh
-from util import suppress_stdout
+from util import SuppressStdOutput
 
 
 class GenesisMesh(Mesh):
@@ -35,8 +35,8 @@ class GenesisMesh(Mesh):
         self.side_sets = side_sets
 
         # with suppress_stdout:
-        # with suppress_stdout():
-        self.exo = exodus(self.genesis_file, array_type='numpy')
+        with SuppressStdOutput(suppress_stdout=True, suppress_stderr=False):
+            self.exo = exodus(self.genesis_file, array_type='numpy')
 
         if summarize:
             self.exo.summarize()
@@ -78,7 +78,8 @@ class GenesisMesh(Mesh):
 
         # with suppress_stdout:
         #     exo.close()
-        self.exo.close()
+        with SuppressStdOutput(suppress_stdout=True, suppress_stderr=False):
+            self.exo.close()
 
     def __str__(self):
         print('Genesis file = %s' % self.genesis_file)
