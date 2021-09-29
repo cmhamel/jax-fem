@@ -6,18 +6,21 @@ from .solver import Solver
 
 
 class NewtonRaphsonSolver(Solver):
-    def __init__(self, solver_input_block, n_nodes, n_dof_per_node, connectivity,
-                 apply_dirichlet_bcs_to_solution_func, apply_dirichlet_bcs_to_residual_func,
-                 apply_dirichlet_bcs_to_tangent_func,
-                 assemble_linear_system):
+    def __init__(self, solver_input_block,
+                 n_nodes, n_dof_per_node, connectivity,
+                 assemble_residual,
+                 assemble_tangent,
+                 apply_dirichlet_bcs_to_solution_func,
+                 apply_dirichlet_bcs_to_residual_func,
+                 apply_dirichlet_bcs_to_tangent_func):
         super(NewtonRaphsonSolver, self).__init__(solver_input_block, n_nodes, n_dof_per_node,
                                                   connectivity)
 
         self.apply_dirichlet_bcs_to_solution_func = apply_dirichlet_bcs_to_solution_func
         self.apply_dirichlet_bcs_to_residual_func = apply_dirichlet_bcs_to_residual_func
         self.apply_dirichlet_bcs_to_tangent_func = apply_dirichlet_bcs_to_tangent_func
-        self.assemble_linear_system = jit(assemble_linear_system)
-        self.tangent_function = jit(jacfwd(self.assemble_linear_system))
+        self.assemble_residual = assemble_residual
+        self.assemble_tangent = assemble_tangent
 
         if self.solver_input_block['linear_solver'].lower() == 'gmres':
             self.linear_solver = jit(jax.scipy.sparse.linalg.gmres)
@@ -30,66 +33,71 @@ class NewtonRaphsonSolver(Solver):
                 raise Exception('Unsupported linear solver: %s in NewtonRaphsonSolver' %
                                 self.solver_input_block['linear_solver'])
 
-    def solve(self, time_step, u_0, dirichlet_bcs_nodes, dirichlet_bcs_values):
+        self.jit_solve = jit(self.solve)
 
-        # initialize the solution vectors
+    def solve(self,
+              u_old, n_dirichlet_bcs, dirichlet_bcs_nodes, dirichlet_bcs_values,
+              time_step, t, delta_t):
+
+        # make an initial guess for newton iterations
         #
-        u_solve = jnp.zeros_like(u_0)
-        residual_solve = jnp.zeros_like(u_solve)
-        delta_u_solve = jnp.zeros_like(u_solve)
+        u = jnp.zeros_like(u_old)
 
         # loop over the maximum number of iterations
         #
         n = 0
         self.print_solver_heading(time_step)
         while n <= self.solver_input_block['maximum_iterations']:
+            # enforce bcs on u
+            #
+            try:
+                u, _, _ = jax.lax.fori_loop(0, n_dirichlet_bcs,
+                                            self.apply_dirichlet_bcs_to_solution_func,
+                                            (u, dirichlet_bcs_nodes, dirichlet_bcs_values))
+            except IndexError:
+                pass
 
-            def solver_function(values):
-                residual, delta_u, u = values
+            # assemble residual and tangent
+            #
+            residual = self.assemble_residual(u, u_old, t, delta_t)
+            try:
+                residual, _ = jax.lax.fori_loop(0, n_dirichlet_bcs,
+                                                self.apply_dirichlet_bcs_to_residual_func,
+                                                (residual, dirichlet_bcs_nodes))
+            except IndexError:
+                pass
 
-                # force u to satisfy dirichlet conditions on the bcs
-                #
-                try:
-                    u, _, _ = jax.lax.fori_loop(0, len(dirichlet_bcs_nodes),
-                                                self.apply_dirichlet_bcs_to_solution_func,
-                                                (u, dirichlet_bcs_nodes, dirichlet_bcs_values))
-                except IndexError:
-                    pass
+            residual_error = jnp.linalg.norm(residual)
 
-                residual = self.assemble_linear_system(u)
-                tangent = self.tangent_function(u)
-
-                try:
-                    tangent, _, _ = jax.lax.fori_loop(0, len(dirichlet_bcs_nodes), self.apply_dirichlet_bcs_to_tangent_func,
-                                                      (tangent, dirichlet_bcs_nodes, dirichlet_bcs_values))
-                except IndexError:
-                    pass
-
-                # solve for solution increment
-                #
-                delta_u, _ = self.linear_solver(tangent, residual,
-                                                maxiter=self.solver_input_block['maximum_linear_solver_iterations'])
-
-                # update the solution increment, note where the minus sign is
-                #
-                u = jax.ops.index_add(u, jax.ops.index[:], -delta_u)
-
-                return residual, delta_u, u
-
-            output = solver_function((residual_solve, delta_u_solve, u_solve))
-            n = n + 1
-            residual_solve, delta_u_solve, u_solve = output
-
-            residual_error, increment_error = jnp.linalg.norm(residual_solve), jnp.linalg.norm(delta_u_solve)
-
-            self.print_solver_state(n, residual_error.ravel(), increment_error.ravel())
-
+            # check error on residual
+            #
             if residual_error < self.solver_input_block['residual_tolerance']:
                 print('Converged on residual: |R| = {0:.8e}'.format(residual_error.ravel()[0]))
                 break
 
+            # if not converged on residual, calculate tangent and newton step
+            #
+            tangent = jacfwd(self.assemble_residual, argnums=0)(u, u_old, t, delta_t)
+
+            # enforce bcs on residual and tangent
+            #
+            try:
+                tangent, _, _ = jax.lax.fori_loop(0, len(self.dirichlet_bcs_nodes), self.enforce_bcs_on_tangent,
+                                                  (tangent, self.dirichlet_bcs_nodes, self.dirichlet_bcs_values))
+            except IndexError:
+                pass
+
+            delta_u, _ = self.jit_linear_solver(tangent, -residual)
+            u = jax.ops.index_add(u, jax.ops.index[:], delta_u)
+
+            increment_error = jnp.linalg.norm(delta_u)
+
             if increment_error < self.solver_input_block['increment_tolerance']:
                 print('Converged on increment: |du| = {0:.8e}'.format(increment_error.ravel()[0]))
                 break
+
+            self.dummy_solver.print_solver_state(n, residual_error.ravel(), increment_error.ravel())
+
+            n = n + 1
 
         return u_solve

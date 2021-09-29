@@ -100,9 +100,38 @@ class TransientHeatConduction(Physics):
         self.jit_assemble_residual = jit(self.assemble_residual)
         self.jit_assemble_tangent = jit(jacfwd(self.assemble_residual))
         self.jit_linear_solver = jit(jax.scipy.sparse.linalg.gmres)
-        self.solve()
+
+        # set up the newton solver
+        #
+        self.solver = NewtonRaphsonSolver(self.solver_input_block,
+                                          len(self.genesis_mesh.nodal_coordinates),
+                                          1,
+                                          self.genesis_mesh.connectivity,
+                                          self.jit_assemble_residual,
+                                          self.jit_assemble_tangent,
+                                          self.enforce_bcs_on_u,
+                                          self.enforce_bcs_on_residual,
+                                          self.enforce_bcs_on_tangent)
+
+        # self.solve()
+        self.solve_native()
 
     def solve(self):
+        # make initial condition zero for now and write to exodus
+        #
+        print(self.time_control)
+        u_old = jnp.zeros(len(self.genesis_mesh.nodal_coordinates[:, 0] * self.n_dof_per_node), dtype=jnp.float64)
+        self.post_process_2d(self.time_control.time_step_number, self.time_control.t, u_old)
+        self.time_control.increment_time()
+
+        # begin loop over time
+        #
+        while self.time_control.t <= self.time_control.time_end:
+            self.dummy_solver.print_solver_heading(self.time_control.time_step_number)
+
+            self.time_control.increment_time()
+
+    def solve_native(self):
 
         # make initial condition zero for now and write to exodus
         #
@@ -159,9 +188,7 @@ class TransientHeatConduction(Physics):
 
                 # if not converged on residual, calculate tangent and newton step
                 #
-                tangent = jacfwd(self.assemble_residual,
-                                 argnums=0)(u, u_old,
-                                            self.time_control.t, self.time_control.time_increment)
+                tangent = self.jit_assemble_tangent(u, u_old, self.time_control.t, self.time_control.time_increment)
 
                 # enforce bcs on residual and tangent
                 #
