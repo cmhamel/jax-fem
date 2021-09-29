@@ -4,6 +4,7 @@ from .application import Application
 from time_control import TimeControl
 from physics import RadiativeTransfer
 from physics import ExplicitSpeciesTransport
+from physics import ImplicitSpeciesTransport
 
 
 class PhotoChemistry(Application):
@@ -28,7 +29,16 @@ class PhotoChemistry(Application):
         #
         self.time_control = TimeControl(self.time_control_block)
         self.radiative_transfer = RadiativeTransfer(self.n_dimensions, self.radiative_transfer_block)
-        self.species_transport = ExplicitSpeciesTransport(self.n_dimensions, self.species_transport_block)
+        # self.species_transport = ExplicitSpeciesTransport(self.n_dimensions, self.species_transport_block)
+        self.species_transport = ImplicitSpeciesTransport(self.n_dimensions, self.species_transport_block,
+                                                          self.time_control)
+
+        # self.time_control.time_increment = self.species_transport.solver.max_eigenvalue / \
+        #                                    (4.0 * self.species_transport.constitutive_models[0][0].D)
+
+        print(self.species_transport.time_control.time_increment)
+        # import sys
+        # sys.exit()
 
         # set up "sources" in the species transport equation
         #
@@ -48,32 +58,21 @@ class PhotoChemistry(Application):
         #
         # self.radiative_transfer.solve(self.time_control.time_step_number,
         #                               self.time_control.t)
-        self.time_control.increment_time()
-
-        while self.time_control.t < self.time_control.time_end:
+        # self.time_control.increment_time()
+        self.species_transport.time_control.increment_time()
+        # while self.time_control.t < self.time_control.time_end:
+        while self.species_transport.time_control.t < self.species_transport.time_control.time_end:
             # self.radiative_transfer.solve(self.time_control.time_step_number,
             #                               self.time_control.t)
 
-            # update dirichlet bcs
-            #
-            for n in range(len(self.species_transport.dirichlet_bcs)):
-                temp_values = self.species_transport.dirichlet_bcs[n].update_bc_values(time=self.time_control.t)
-                self.species_transport.dirichlet_bcs_values = \
-                    jax.ops.index_update(self.species_transport.dirichlet_bcs_values, jax.ops.index[n, :], temp_values)
-
             # print('Time = %s' % self.time_control.t)
-            self.species_transport.c_old = \
-                self.species_transport.solver.solve(self.time_control,
-                                                    self.species_transport.c_old,
-                                                    self.species_transport.dirichlet_bcs_nodes,
-                                                    self.species_transport.dirichlet_bcs_values)
+            self.species_transport.solve()
 
-            if self.time_control.time_step_number % 1000 == 0:
-                self.species_transport.post_process_2d(self.time_control.time_step_number,
-                                                       self.time_control.t)
+            if self.species_transport.time_control.time_step_number % 1 == 0:
+                self.species_transport.post_process_2d()
             # increment time
             #
-            self.time_control.increment_time()
+            self.species_transport.time_control.increment_time()
 
     def post_process(self, time_step, time):
         self.species_transport.post_processor.exo.put_time(time_step, time)

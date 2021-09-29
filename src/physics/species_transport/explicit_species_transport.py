@@ -93,7 +93,6 @@ class ExplicitSpeciesTransport(Physics):
                                                        block_nodes=node_list,
                                                        value=ic['value']))
 
-
         self.c_old = initial_conditions[0].values
         self.post_process_2d(1, 0.0)
 
@@ -108,14 +107,16 @@ class ExplicitSpeciesTransport(Physics):
                                          self.enforce_bcs_on_u,
                                          self.enforce_bcs_on_residual,
                                          self.enforce_bcs_on_tangent,
-                                         self.assemble_linear_system,
-                                         self.assemble_mass_matrix)
+                                         # self.assemble_linear_system,
+                                         self.assemble_stiffness_matrix,
+                                         self.assemble_mass_matrix,
+                                         property=self.constitutive_models[0][0].D)
 
         # initialize mass matrix
         #
         # self.mass_matrix = self.assemble_mass_matrix()
         # self.mass_matrix_inv = jnp.linalg.inv(self.assemble_mass_matrix())
-        # self.jit_solve = jit(self.solve)
+        self.jit_solve = jit(self.solver.solve)
 
     @staticmethod
     def enforce_bcs_on_u(i, input):
@@ -159,6 +160,46 @@ class ExplicitSpeciesTransport(Physics):
         return M_e
 
     def assemble_mass_matrix(self):
+        mass_matrix = jnp.zeros((self.genesis_mesh.nodal_coordinates.shape[0] * self.n_dof_per_node,
+                                 self.genesis_mesh.nodal_coordinates.shape[0] * self.n_dof_per_node),
+                                dtype=jnp.float64)
+        connectivity = self.genesis_mesh.connectivity
+        coordinates = self.genesis_mesh.nodal_coordinates[connectivity]
+
+        # jit the element level mass matrix calculator
+        #
+        jit_calculate_element_level_mass_matrix = jit(self.calculate_element_level_mass_matrix)
+
+        def element_calculation(e, input):
+            mass_matrix_temp = input
+            M_e = jit_calculate_element_level_mass_matrix(coordinates[e])
+            indices = jnp.ix_(connectivity[e], connectivity[e])
+            mass_matrix_temp = jax.ops.index_add(mass_matrix_temp, jax.ops.index[indices], M_e)
+            return mass_matrix_temp
+
+        mass_matrix = jax.lax.fori_loop(0, self.genesis_mesh.n_elements_in_blocks[0], element_calculation, mass_matrix)
+
+        return mass_matrix
+
+    def calculate_element_level_stiffness_matrix(self, coords):
+        K_e = jnp.zeros((self.genesis_mesh.n_nodes_per_element[0], self.genesis_mesh.n_nodes_per_element[0]),
+                        dtype=jnp.float64)
+        grad_N_X_element = self.element_objects[0].map_shape_function_gradients(coords)
+        JxW_element = self.element_objects[0].calculate_JxW(coords)
+        def quadrature_calculation(q, K_element):
+            # N_xi = self.element_objects[0].N_xi[q, :, :]
+            grad_N_X = grad_N_X_element[q, :, :]
+            JxW = JxW_element[q, 0]
+            D = self.constitutive_models[0][0].D
+            K_q = JxW * D * jnp.matmul(grad_N_X, grad_N_X.transpose())
+            K_element = jax.ops.index_add(K_element, jax.ops.index[:, :], K_q)
+            return K_element
+
+        K_e = jax.lax.fori_loop(0, self.element_objects[0].n_quadrature_points, quadrature_calculation, K_e)
+
+        return K_e
+
+    def assemble_stiffness_matrix(self):
         mass_matrix = jnp.zeros((self.genesis_mesh.nodal_coordinates.shape[0] * self.n_dof_per_node,
                                  self.genesis_mesh.nodal_coordinates.shape[0] * self.n_dof_per_node),
                                 dtype=jnp.float64)

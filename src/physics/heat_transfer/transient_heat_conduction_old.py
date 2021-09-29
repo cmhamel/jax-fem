@@ -1,17 +1,14 @@
 import jax
 import jax.numpy as jnp
-from jax import jit, jacfwd
+from jax import jit
 from elements import LineElement
 from elements import QuadElement
-from solvers import Solver
 from solvers import NewtonRaphsonSolver
 # from solvers import NewtonRaphsonTransientSolver
 from ..physics import Physics
-from ..initial_conditions import InitialCondition
 from ..boundary_conditions import DirichletBoundaryCondition
 from ..boundary_conditions import NeumannBoundaryCondition
 from ..constitutive_models import FouriersLaw
-from time_control import TimeControl
 
 
 class TransientHeatConduction(Physics):
@@ -22,9 +19,6 @@ class TransientHeatConduction(Physics):
         # set number of degress of freedom per node
         #
         self.n_dof_per_node = 1
-
-        # set initial conditions
-        #
 
         # get some boundary conditions
         #
@@ -81,124 +75,78 @@ class TransientHeatConduction(Physics):
 
         # set up a solver
         #
-        # self.solver = NewtonRaphsonSolver(self.solver_input_block,
-        #                                   len(self.genesis_mesh.nodal_coordinates),
-        #                                   1,
-        #                                   self.genesis_mesh.connectivity,
-        #                                   self.enforce_bcs_on_u,
-        #                                   self.enforce_bcs_on_residual,
-        #                                   self.enforce_bcs_on_tangent,
-        #                                   self.assemble_residual)
-        self.dummy_solver = Solver()
-        # set up time control
-        #
-        self.time_control = TimeControl(self.physics_input['time_control'])
+        self.solver = NewtonRaphsonSolver(self.solver_input_block,
+                                          len(self.genesis_mesh.nodal_coordinates),
+                                          1,
+                                          self.genesis_mesh.connectivity,
+                                          self.enforce_bcs_on_u,
+                                          self.enforce_bcs_on_residual,
+                                          self.enforce_bcs_on_tangent,
+                                          self.assemble_linear_system)
 
-        # solve here for test, otherwise call an app for this
+        # make an initial guess on the solution
         #
-        self.jit_calculate_element_level_residual = jit(self.calculate_element_level_residual)
-        self.jit_assemble_residual = jit(self.assemble_residual)
-        self.jit_assemble_tangent = jit(jacfwd(self.assemble_residual))
-        self.jit_linear_solver = jit(jax.scipy.sparse.linalg.gmres)
-        self.solve()
+        # u_0 = jnp.zeros(len(self.genesis_mesh.nodal_coordinates[:, 0] * self.n_dof_per_node),
+        #                 dtype=jnp.float64)
+        self.u_old = jnp.zeros(len(self.genesis_mesh.nodal_coordinates[:, 0] * self.n_dof_per_node),
+                               dtype=jnp.float64)
+        self.u_postprocess = jnp.zeros_like(self.u_old)
+        self.u_postprocess = jax.ops.index_update(self.u_postprocess, jax.ops.index[:], self.u_old)
+        self.post_process_2d(1, 0.0)
 
-    def solve(self):
+        self.time_control_block = self.physics_input['time_control']
+        print(self.time_control_block)
 
-        # make initial condition zero for now and write to exodus
-        #
-        print(self.time_control)
-        u_old = jnp.zeros(len(self.genesis_mesh.nodal_coordinates[:, 0] * self.n_dof_per_node), dtype=jnp.float64)
-        self.post_process_2d(self.time_control.time_step_number, self.time_control.t, u_old)
-        self.time_control.increment_time()
+        if self.time_control_block['type'].lower() == 'transient':
+            self.t_0 = self.time_control_block['time_initial']
+            self.t_end = self.time_control_block['time_end']
+            self.delta_t = self.time_control_block['time_increment']
 
-        # begin loop over time
-        #
-        while self.time_control.t <= self.time_control.time_end:
-            self.dummy_solver.print_solver_heading(self.time_control.time_step_number)
-            # update dirichlet bcs objects
-            #
             for n in range(len(self.dirichlet_bcs)):
-                temp_values = self.dirichlet_bcs[n].update_bc_values(time=self.time_control.t)
-                self.dirichlet_bcs_values = jax.ops.index_update(self.dirichlet_bcs_values, jax.ops.index[n, :],
-                                                                 temp_values)
+                self.dirichlet_bcs[n].time_end = self.t_end
 
-            # make an initial guess for newton iterations
+            # loop over time
             #
-            u = jnp.zeros_like(u_old)
+            self.t = self.t_0 + self.delta_t
+            time_step = 2
+            while self.t <= self.t_end:
 
-            # begin loop over newton iterations
-            #
-            n = 0
-            while n <= self.solver_input_block['maximum_iterations']:
-                # enforce bcs on u
+                # update dirichlet bcs
                 #
-                try:
-                    u, _, _ = jax.lax.fori_loop(0, len(self.dirichlet_bcs_nodes),
-                                                self.enforce_bcs_on_u,
-                                                (u, self.dirichlet_bcs_nodes, self.dirichlet_bcs_values))
-                except IndexError:
-                    pass
-
-                # assemble residual and tangent
+                for n in range(len(self.dirichlet_bcs)):
+                    temp_values = self.dirichlet_bcs[n].update_bc_values(time=self.t)
+                    self.dirichlet_bcs_values = jax.ops.index_update(self.dirichlet_bcs_values, jax.ops.index[n, :],
+                                                                     temp_values)
+                # now solve
                 #
-                residual = self.jit_assemble_residual(u, u_old,
-                                                      self.time_control.t, self.time_control.time_increment)
-                try:
-                    residual, _ = jax.lax.fori_loop(0, len(self.dirichlet_bcs),
-                                                    self.enforce_bcs_on_residual, (residual, self.dirichlet_bcs_nodes))
-                except IndexError:
-                    pass
+                # self.u = self.solver.solve(time_step, u_0, self.dirichlet_bcs_nodes, self.dirichlet_bcs_values)
+                u = self.solver.solve(time_step, self.u_old, self.dirichlet_bcs_nodes, self.dirichlet_bcs_values)
 
-                residual_error = jnp.linalg.norm(residual)
-
-                # check error on residual
+                # update
                 #
-                if residual_error < self.solver_input_block['residual_tolerance']:
-                    print('Converged on residual: |R| = {0:.8e}'.format(residual_error.ravel()[0]))
-                    break
+                # u_0 = self.u
+                u_dot_norm = jnp.linalg.norm((u - self.u_old) / self.delta_t)
+                print('|u_dot| = {0:.6e}'.format(u_dot_norm.ravel()[0]))
+                # self.u_old = self.u
+                self.u_old = jax.ops.index_update(self.u_old, jax.ops.index[:], u)
+                self.u_postprocess = jax.ops.index_update(self.u_postprocess, jax.ops.index[:], u)
 
-                # if not converged on residual, calculate tangent and newton step
+                time_step = time_step + 1
+                self.t = self.t + self.delta_t
+
+                # post-process
                 #
-                tangent = jacfwd(self.assemble_residual,
-                                 argnums=0)(u, u_old,
-                                            self.time_control.t, self.time_control.time_increment)
+                if n_dimensions == 1:
+                    self.post_process_1d()
+                elif n_dimensions == 2:
+                    self.post_process_2d(time_step, self.t)
+                else:
+                    try:
+                        assert False
+                    except AssertionError:
+                        raise Exception('Unsupported number of dimensions to postprocess')
 
-                # enforce bcs on residual and tangent
-                #
-                try:
-                    tangent, _, _ = jax.lax.fori_loop(0, len(self.dirichlet_bcs_nodes), self.enforce_bcs_on_tangent,
-                                                      (tangent, self.dirichlet_bcs_nodes, self.dirichlet_bcs_values))
-                except IndexError:
-                    pass
-
-                delta_u, _ = self.jit_linear_solver(tangent, -residual)
-                u = jax.ops.index_add(u, jax.ops.index[:], delta_u)
-
-                increment_error = jnp.linalg.norm(delta_u)
-
-                if increment_error < self.solver_input_block['increment_tolerance']:
-                    print('Converged on increment: |du| = {0:.8e}'.format(increment_error.ravel()[0]))
-                    break
-
-                self.dummy_solver.print_solver_state(n, residual_error.ravel(), increment_error.ravel())
-
-                n = n + 1
-
-            # now post-process
-            #
-            self.post_process_2d(self.time_control.time_step_number, self.time_control.t, u)
-
-            u_dot = (u - u_old) / self.time_control.time_increment
-            u_dot_norm = jnp.linalg.norm(self.time_control.time_increment * u_dot)
-            print('|u_n+1 - u_n| = {0:.6e}'.format(u_dot_norm.ravel()[0]))
-
-            # now update u_old
-            #
-            u_old = jax.ops.index_update(u_old, jax.ops.index[:], u)
-
-            # increment time
-            #
-            self.time_control.increment_time()
+            self.post_processor.exo.close()
 
     @staticmethod
     def enforce_bcs_on_u(i, input):
@@ -225,14 +173,12 @@ class TransientHeatConduction(Physics):
         tangent_temp = jax.ops.index_update(tangent_temp, jax.ops.index[bc_nodes, bc_nodes], 1.0)
         return tangent_temp, bcs_nodes, bcs_values
 
-    # def calculate_element_level_residual(self, nodal_fields):
-    def calculate_element_level_residual(self, inputs):
+    def calculate_element_level_residual(self, nodal_fields):
         """
         :param nodal_fields: relevant nodal fields
         :return: the integrated element level residual vector
         """
-        coords, theta_nodal, theta_nodal_old, t, delta_t = inputs
-        # coords, theta_nodal, theta_nodal_old = nodal_fields
+        coords, theta_nodal, theta_nodal_old = nodal_fields
         R_e = jnp.zeros((self.genesis_mesh.n_nodes_per_element[0]), dtype=jnp.float64)
 
         def quadrature_calculation(q, R_element):
@@ -250,16 +196,18 @@ class TransientHeatConduction(Physics):
 
             theta_q = jnp.matmul(theta_nodal, N_xi)
             theta_q_old = jnp.matmul(theta_nodal_old, N_xi)
+            theta_dot_q = (theta_q - theta_q_old) / self.delta_t
             grad_theta_q = jnp.matmul(grad_N_X.T, theta_nodal).reshape((-1, 1))
 
             q_q = self.constitutive_models[0].calculate_heat_conduction(grad_theta_q)
 
-            # source = jnp.sin(2.0 * jnp.pi * t / 1000.0) * \
-            #          jnp.exp(-((x_q - 0.5) ** 2 + (y_q - 0.5) ** 2) / 25.0) + 1.0
-            source = 0.0
+            source = jnp.sin(2.0 * jnp.pi * self.t / self.time_control_block['time_end']) * \
+                     jnp.exp(-((x_q - 0.5)**2 + (y_q - 0.5)**2) / 25.0) + 1.0
 
+            # R_q = JxW * theta_dot_q * N_xi - \
+            #       JxW * jnp.matmul(grad_N_X, q_q)
             R_q = JxW * (theta_q * N_xi - theta_q_old * N_xi -
-                         delta_t * jnp.matmul(grad_N_X, q_q) - source * N_xi)
+                         self.delta_t * jnp.matmul(grad_N_X, q_q) - source * N_xi)
             R_element = jax.ops.index_add(R_element, jax.ops.index[:], R_q[:, 0])
 
             return R_element
@@ -268,34 +216,37 @@ class TransientHeatConduction(Physics):
 
         return R_e
 
-    # def assemble_residual(self, u):
-    def assemble_residual(self, u, u_old, t, delta_t):
+    def assemble_linear_system(self, u):
+
         # set up residual and grab connectivity for convenience
         #
-        # u, u_old, t, delta_t = inputs
         residual = jnp.zeros_like(u)
         connectivity = self.genesis_mesh.connectivity
 
         coordinates = self.genesis_mesh.nodal_coordinates[connectivity]
         theta_element_wise = u[connectivity]
-        theta_element_wise_old = u_old[connectivity]
+        theta_element_wise_old = self.u_old[connectivity]
 
         # jit the element level residual calculator
         #
-        # TODO move this up to a top level operation
-        # jit_calculate_element_level_residual = jit(self.calculate_element_level_residual)
+        jit_calculate_element_level_residual = jit(self.calculate_element_level_residual)
 
         def element_calculation(e, input):
             residual_temp = input
-            R_e = self.jit_calculate_element_level_residual((coordinates[e],
-                                                            theta_element_wise[e], theta_element_wise_old[e],
-                                                            t, delta_t))
+            R_e = jit_calculate_element_level_residual((coordinates[e],
+                                                        theta_element_wise[e], theta_element_wise_old[e]))
             residual_temp = jax.ops.index_add(residual_temp, jax.ops.index[connectivity[e]], R_e)
             return residual_temp
 
         residual = jax.lax.fori_loop(0, self.genesis_mesh.n_elements_in_blocks[0], element_calculation, residual)
 
-
+        # adjust residual to satisfy dirichlet conditions
+        #
+        try:
+            residual, _ = jax.lax.fori_loop(0, len(self.dirichlet_bcs),
+                                            self.enforce_bcs_on_residual, (residual, self.dirichlet_bcs_nodes))
+        except IndexError:
+            pass
 
         return residual
 
@@ -307,6 +258,6 @@ class TransientHeatConduction(Physics):
                  linestyle='None', marker='o')
         plt.show()
 
-    def post_process_2d(self, time_step, time, theta):
+    def post_process_2d(self, time_step, time):
         self.post_processor.exo.put_time(time_step, time)
-        self.post_processor.write_nodal_scalar_variable('theta', time_step, jnp.asarray(theta))
+        self.post_processor.write_nodal_scalar_variable('theta', time_step, jnp.asarray(self.u_postprocess))

@@ -14,7 +14,8 @@ class TimeControl:
         string = string + \
                  'Time start     = %s\n' % self.time_start + \
                  'Time end       = %s\n' % self.time_end + \
-                 'Time increment = %s\n' % self.time_increment
+                 'Time increment = %s\n' % self.time_increment + \
+                 'Time current   = %s\n' % self.t
         return string
 
     def increment_time(self):

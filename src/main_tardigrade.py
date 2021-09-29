@@ -39,55 +39,57 @@ if __name__ == '__main__':
             raise Exception('Error in input file')
 
     n_dimensions = input_settings['number_of_dimensions']
-    application = input_settings['application']
     physics = input_settings['physics']
 
-    if application == 'photo_chemistry':
-        PhotoChemistry(n_dimensions, physics)
+    try:
+        application = input_settings['application']
 
-    import sys
-    sys.exit()
+        if application == 'photo_chemistry':
+            PhotoChemistry(n_dimensions, physics)
+    except KeyError:
+        print('No application called.')
+        print('Falling back to single physics solver for development mode.')
 
-    for key in physics.keys():
-        if key.lower() == 'poisson_equation':
-            tprint('poisson equation')
-            poisson_equation = PoissonEquation(n_dimensions,
-                                               physics[key])
-        elif key.lower() == 'heat_transfer':
-            tprint('heat transfer')
-            time_dependence = physics[key]['time_dependence']
-            if time_dependence == 'steady_state':
-                tprint('steady state')
-                heat_transfer = SteadyStateHeatConduction(n_dimensions,
-                                                          physics[key])
-            elif time_dependence == 'transient':
-                tprint('transient')
-                heat_transfer = TransientHeatConduction(n_dimensions,
-                                                        physics[key])
+        for key in physics.keys():
+            if key.lower() == 'poisson_equation':
+                tprint('poisson equation')
+                poisson_equation = PoissonEquation(n_dimensions,
+                                                   physics[key])
+            elif key.lower() == 'heat_transfer':
+                tprint('heat transfer')
+                time_dependence = physics[key]['time_dependence']
+                if time_dependence == 'steady_state':
+                    tprint('steady state')
+                    heat_transfer = SteadyStateHeatConduction(n_dimensions,
+                                                              physics[key])
+                elif time_dependence == 'transient':
+                    tprint('transient')
+                    heat_transfer = TransientHeatConduction(n_dimensions,
+                                                            physics[key])
+                else:
+                    try:
+                        assert False
+                    except AssertionError:
+                        raise Exception('Unsupported time dependence')
+            elif key.lower() == 'radiative_transfer':
+                tprint('radiative transfer')
+                radiative_transfer = RadiativeTransfer(n_dimensions,
+                                                       physics[key])
+            elif key.lower() == 'species_transport':
+                tprint('species transport')
+                # species_transport = SpeciesTransport(n_dimensions,
+                #                                      physics[key])
+                species_transport = ExplicitSpeciesTransport(n_dimensions,
+                                                             physics[key])
+            elif key.lower() == 'cahn_hilliard':
+                tprint('cahn-hilliard')
+                cahn_hilliard = CahnHilliard(n_dimensions,
+                                             physics[key])
+            elif key.lower() == 'solid_mechanics':
+                assert False, 'not supported yet'
             else:
                 try:
                     assert False
                 except AssertionError:
-                    raise Exception('Unsupported time dependence')
-        elif key.lower() == 'radiative_transfer':
-            tprint('radiative transfer')
-            radiative_transfer = RadiativeTransfer(n_dimensions,
-                                                   physics[key])
-        elif key.lower() == 'species_transport':
-            tprint('species transport')
-            # species_transport = SpeciesTransport(n_dimensions,
-            #                                      physics[key])
-            species_transport = ExplicitSpeciesTransport(n_dimensions,
-                                                         physics[key])
-        elif key.lower() == 'cahn_hilliard':
-            tprint('cahn-hilliard')
-            cahn_hilliard = CahnHilliard(n_dimensions,
-                                         physics[key])
-        elif key.lower() == 'solid_mechanics':
-            assert False, 'not supported yet'
-        else:
-            try:
-                assert False
-            except AssertionError:
-                raise Exception('Physics not supported currently')
+                    raise Exception('Physics not supported currently')
 

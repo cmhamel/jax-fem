@@ -4,9 +4,9 @@ from jax import jit
 
 
 class Solver:
-    def __init__(self, solver_input_block,
-                 n_nodes, n_dof_per_node,
-                 connectivity):
+    def __init__(self, solver_input_block=None,
+                 n_nodes=None, n_dof_per_node=None,
+                 connectivity=None):
         self.solver_input_block = solver_input_block
         self.n_nodes = n_nodes
         self.n_dof_per_node = n_dof_per_node

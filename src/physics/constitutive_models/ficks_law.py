@@ -21,3 +21,6 @@ class FicksLaw(ConstitutiveModel):
 
     def calculate_species_flux(self, grad_c):
         return -self.D * grad_c
+
+    # def calculate_species_flux_tangent(self):
+    #     return -self.D

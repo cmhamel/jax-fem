@@ -1,2 +1,3 @@
 from .species_transport import SpeciesTransport
 from .explicit_species_transport import ExplicitSpeciesTransport
+from .implicit_species_transport import ImplicitSpeciesTransport
