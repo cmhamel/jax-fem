@@ -3,12 +3,10 @@ import jax.numpy as jnp
 from jax import jit, jacfwd
 from elements import LineElement
 from elements import QuadElement
-from solvers import Solver
 from solvers import NewtonRaphsonSolver
 from ..physics import Physics
 from ..initial_conditions import InitialCondition
 from ..boundary_conditions import DirichletBoundaryCondition
-from ..boundary_conditions import NeumannBoundaryCondition
 from ..constitutive_models import FouriersLaw
 from time_control import TimeControl
 
@@ -82,12 +80,15 @@ class TransientHeatConduction(Physics):
         #
         self.time_control = TimeControl(self.physics_input['time_control'])
 
-        # solve here for test, otherwise call an app for this
+        # jit a bunch of methods
         #
         self.jit_calculate_element_level_residual = jit(self.calculate_element_level_residual)
         self.jit_assemble_residual = jit(self.assemble_residual)
         self.jit_assemble_tangent = jit(jacfwd(self.assemble_residual))
         self.jit_linear_solver = jit(jax.scipy.sparse.linalg.gmres)
+        self.jit_enforce_bcs_on_u = jit(self.enforce_bcs_on_u)
+        self.jit_enforce_bcs_on_residual = jit(self.enforce_bcs_on_residual)
+        self.jit_enforce_bcs_on_tangent = jit(self.enforce_bcs_on_tangent)
 
         # set up the newton solver
         #
@@ -97,12 +98,11 @@ class TransientHeatConduction(Physics):
                                           self.genesis_mesh.connectivity,
                                           self.jit_assemble_residual,
                                           self.jit_assemble_tangent,
-                                          self.enforce_bcs_on_u,
-                                          self.enforce_bcs_on_residual,
-                                          self.enforce_bcs_on_tangent)
+                                          self.jit_enforce_bcs_on_u,
+                                          self.jit_enforce_bcs_on_residual,
+                                          self.jit_enforce_bcs_on_tangent)
 
         self.solve()
-        # self.solve_native()
 
     def solve(self):
         # make initial condition zero for now and write to exodus
@@ -169,14 +169,12 @@ class TransientHeatConduction(Physics):
         tangent_temp = jax.ops.index_update(tangent_temp, jax.ops.index[bc_nodes, bc_nodes], 1.0)
         return tangent_temp, bcs_nodes, bcs_values
 
-    # def calculate_element_level_residual(self, nodal_fields):
     def calculate_element_level_residual(self, inputs):
         """
         :param nodal_fields: relevant nodal fields
         :return: the integrated element level residual vector
         """
         coords, theta_nodal, theta_nodal_old, t, delta_t = inputs
-        # coords, theta_nodal, theta_nodal_old = nodal_fields
         R_e = jnp.zeros((self.genesis_mesh.n_nodes_per_element[0]), dtype=jnp.float64)
 
         def quadrature_calculation(q, R_element):
