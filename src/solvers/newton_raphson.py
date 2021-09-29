@@ -33,7 +33,8 @@ class NewtonRaphsonSolver(Solver):
                 raise Exception('Unsupported linear solver: %s in NewtonRaphsonSolver' %
                                 self.solver_input_block['linear_solver'])
 
-        self.jit_solve = jit(self.solve)
+        # TODO figure out how to do this right
+        # self.jit_solve = jit(self.solve)
 
     def solve(self,
               u_old, n_dirichlet_bcs, dirichlet_bcs_nodes, dirichlet_bcs_values,
@@ -82,12 +83,12 @@ class NewtonRaphsonSolver(Solver):
             # enforce bcs on residual and tangent
             #
             try:
-                tangent, _, _ = jax.lax.fori_loop(0, len(self.dirichlet_bcs_nodes), self.enforce_bcs_on_tangent,
-                                                  (tangent, self.dirichlet_bcs_nodes, self.dirichlet_bcs_values))
+                tangent, _, _ = jax.lax.fori_loop(0, len(dirichlet_bcs_nodes), self.apply_dirichlet_bcs_to_tangent_func,
+                                                  (tangent, dirichlet_bcs_nodes, dirichlet_bcs_values))
             except IndexError:
                 pass
 
-            delta_u, _ = self.jit_linear_solver(tangent, -residual)
+            delta_u, _ = self.linear_solver(tangent, -residual)
             u = jax.ops.index_add(u, jax.ops.index[:], delta_u)
 
             increment_error = jnp.linalg.norm(delta_u)
@@ -96,8 +97,8 @@ class NewtonRaphsonSolver(Solver):
                 print('Converged on increment: |du| = {0:.8e}'.format(increment_error.ravel()[0]))
                 break
 
-            self.dummy_solver.print_solver_state(n, residual_error.ravel(), increment_error.ravel())
+            self.print_solver_state(n, residual_error.ravel(), increment_error.ravel())
 
             n = n + 1
 
-        return u_solve
+        return u
