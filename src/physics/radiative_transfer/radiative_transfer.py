@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 from jax import jit
+from jax import jacfwd
 from elements import LineElement
 from elements import QuadElement
 from solvers import NewtonRaphsonSolver
@@ -72,16 +73,21 @@ class RadiativeTransfer(Physics):
             print('\td     = %s' % self.ds[n])
             print('\tsigma = %s' % self.sigmas[n])
 
+        self.jit_calculate_element_level_residual = jit(self.calculate_element_level_residual)
+        self.jit_assemble_residual = jit(self.assemble_residual)
+        self.jit_assemble_tangent = jit(jacfwd(self.assemble_residual))
+
         # set up a solver
         #
         self.solver = NewtonRaphsonSolver(self.solver_input_block,
                                           len(self.genesis_mesh.nodal_coordinates),
                                           1,
                                           self.genesis_mesh.connectivity,
+                                          self.jit_assemble_residual,
+                                          self.jit_assemble_tangent,
                                           self.enforce_bcs_on_u,
                                           self.enforce_bcs_on_residual,
-                                          self.enforce_bcs_on_tangent,
-                                          self.assemble_linear_system)
+                                          self.enforce_bcs_on_tangent)
 
         self.u = jnp.zeros(len(self.genesis_mesh.nodal_coordinates[:, 0] * self.n_dof_per_node))
         self.I = jnp.zeros(len(self.genesis_mesh.nodal_coordinates[:, 0] * self.n_dof_per_node))
@@ -91,7 +97,9 @@ class RadiativeTransfer(Physics):
         #
         u_0 = jnp.zeros(len(self.genesis_mesh.nodal_coordinates[:, 0] * self.n_dof_per_node),
                         dtype=jnp.float64)
-        self.u = self.solver.solve(time_step, u_0, self.dirichlet_bcs_nodes, self.dirichlet_bcs_values)
+        # self.u = self.solver.solve(time_step, u_0, self.dirichlet_bcs_nodes, self.dirichlet_bcs_values)
+        self.u = self.solver.solve(u_0, len(self.dirichlet_bcs), self.dirichlet_bcs_nodes, self.dirichlet_bcs_values,
+                                   time_step, time, 0.0)
         self.I = self.u
         self.post_process_2d(time_step, time)
 
@@ -170,7 +178,7 @@ class RadiativeTransfer(Physics):
         :param nodal_fields: relevant nodal fields
         :return: the integrated element level residual vector
         """
-        coords, I_nodal = nodal_fields
+        coords, I_nodal, _, _, _ = nodal_fields
         R_e = jnp.zeros((self.genesis_mesh.n_nodes_per_element[0]), dtype=jnp.float64)
         supg = self.blocks_input_block[0]['radiative_transfer_properties']['h'] / 2
 
@@ -205,7 +213,7 @@ class RadiativeTransfer(Physics):
 
         return R_e
 
-    def assemble_linear_system(self, u):
+    def assemble_residual(self, u, u_old, t, delta_t):
 
         # set up residual and grab connectivity for convenience
         #
@@ -214,15 +222,17 @@ class RadiativeTransfer(Physics):
 
         coordinates = self.genesis_mesh.nodal_coordinates[connectivity]
         I_element_wise = u[connectivity]
+        I_element_wise_old = u_old[connectivity]
 
         # jit the element level residual calculator
         #
-        jit_calculate_element_level_residual = jit(self.calculate_element_level_residual)
+        # jit_calculate_element_level_residual = jit(self.calculate_element_level_residual)
 
         def element_calculation(e, input):
             residual_temp = input
-            R_e = jit_calculate_element_level_residual((coordinates[e],
-                                                        I_element_wise[e]))
+            R_e = self.jit_calculate_element_level_residual((coordinates[e],
+                                                             I_element_wise[e], I_element_wise_old[e],
+                                                             t, delta_t))
             residual_temp = jax.ops.index_add(residual_temp, jax.ops.index[connectivity[e]], R_e)
             return residual_temp
 

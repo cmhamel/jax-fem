@@ -8,9 +8,9 @@ class FicksLaw(ConstitutiveModel):
         self.D = self.model_parameters['diffusivity']
 
     def __str__(self):
-        string = 'Model name = %s\n' % self.model_name
-        string = string + 'Model parameters:\n'
-        string = string + '\tDiffusivity: D = %s\n' % self.D
+        string = '\tModel name = %s\n' % self.model_name
+        string = string + '\t\tModel parameters:\n'
+        string = string + '\t\tDiffusivity: D = %s\n' % self.D
         return string
 
     def check_model_parameters(self):

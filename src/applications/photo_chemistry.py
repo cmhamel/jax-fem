@@ -23,26 +23,27 @@ class PhotoChemistry(Application):
         #
         self.time_control_block = self.physics_input_blocks['time_control']
         self.radiative_transfer_block = self.physics_input_blocks['radiative_transfer']
-        self.species_transport_block = self.physics_input_blocks['species_transport']
+        # self.species_transport_block = self.physics_input_blocks['species_transport']
+        self.chemistry_block = self.physics_input_blocks['chemistry']
 
         # make objects which build the app physics and time control
         #
         self.time_control = TimeControl(self.time_control_block)
         self.radiative_transfer = RadiativeTransfer(self.n_dimensions, self.radiative_transfer_block)
         # self.species_transport = ExplicitSpeciesTransport(self.n_dimensions, self.species_transport_block)
-        self.species_transport = ImplicitSpeciesTransport(self.n_dimensions, self.species_transport_block,
-                                                          self.time_control)
+        # self.species_transport = ImplicitSpeciesTransport(self.n_dimensions, self.species_transport_block,
+        #                                                   self.time_control)
 
         # self.time_control.time_increment = self.species_transport.solver.max_eigenvalue / \
         #                                    (4.0 * self.species_transport.constitutive_models[0][0].D)
 
-        print(self.species_transport.time_control.time_increment)
+        # print(self.species_transport.time_control.time_increment)
         # import sys
         # sys.exit()
 
         # set up "sources" in the species transport equation
         #
-        self.species_transport.sources = []
+        # self.species_transport.sources = []
 
         # run the simulation
         #
@@ -56,26 +57,28 @@ class PhotoChemistry(Application):
 
         # write initial time first
         #
-        # self.radiative_transfer.solve(self.time_control.time_step_number,
-        #                               self.time_control.t)
+        self.radiative_transfer.solve(self.time_control.time_step_number,
+                                      self.time_control.t)
+        self.post_process(1, 0.0)
         # self.time_control.increment_time()
-        self.species_transport.time_control.increment_time()
+        # self.species_transport.time_control.increment_time()
         # while self.time_control.t < self.time_control.time_end:
-        while self.species_transport.time_control.t < self.species_transport.time_control.time_end:
-            # self.radiative_transfer.solve(self.time_control.time_step_number,
-            #                               self.time_control.t)
-
-            # print('Time = %s' % self.time_control.t)
-            self.species_transport.solve()
-
-            if self.species_transport.time_control.time_step_number % 1 == 0:
-                self.species_transport.post_process_2d()
-            # increment time
-            #
-            self.species_transport.time_control.increment_time()
+        # while self.species_transport.time_control.t < self.species_transport.time_control.time_end:
+        #     # self.radiative_transfer.solve(self.time_control.time_step_number,
+        #     #                               self.time_control.t)
+        #
+        #     # print('Time = %s' % self.time_control.t)
+        #     self.species_transport.solve()
+        #
+        #     if self.species_transport.time_control.time_step_number % 1 == 0:
+        #         self.species_transport.post_process_2d()
+        #     # increment time
+        #     #
+        #     self.species_transport.time_control.increment_time()
 
     def post_process(self, time_step, time):
-        self.species_transport.post_processor.exo.put_time(time_step, time)
-        self.species_transport.post_processor.\
-            write_nodal_scalar_variable('c', time_step, jnp.asarray(self.species_transport.c_old))
+        self.radiative_transfer.post_processor.exo.put_time(time_step, time)
+        # self.species_transport.post_processor.exo.put_time(time_step, time)
+        # self.species_transport.post_processor.\
+        #     write_nodal_scalar_variable('c', time_step, jnp.asarray(self.species_transport.c_old))
 

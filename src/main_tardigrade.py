@@ -79,8 +79,10 @@ if __name__ == '__main__':
                 tprint('species transport')
                 # species_transport = SpeciesTransport(n_dimensions,
                 #                                      physics[key])
-                species_transport = ExplicitSpeciesTransport(n_dimensions,
-                                                             physics[key])
+                # species_transport = ExplicitSpeciesTransport(n_dimensions,
+                #                                              physics[key])
+                species_transport = SpeciesTransport(n_dimensions,
+                                                     physics[key])
             elif key.lower() == 'cahn_hilliard':
                 tprint('cahn-hilliard')
                 cahn_hilliard = CahnHilliard(n_dimensions,
