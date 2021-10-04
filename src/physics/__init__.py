@@ -9,3 +9,4 @@ from .species_transport import SpeciesTransport
 from .species_transport import ExplicitSpeciesTransport
 from .species_transport import ImplicitSpeciesTransport
 from .cahn_hilliard import CahnHilliard
+from .linear_elasticity import LinearElasticity

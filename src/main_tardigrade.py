@@ -9,6 +9,7 @@ from physics import TransientHeatConduction
 from physics import SpeciesTransport
 from physics import ExplicitSpeciesTransport
 from physics import CahnHilliard
+from physics import LinearElasticity
 from applications import PhotoChemistry
 from jax.config import config
 config.update("jax_enable_x64", True)
@@ -87,6 +88,10 @@ if __name__ == '__main__':
                 tprint('cahn-hilliard')
                 cahn_hilliard = CahnHilliard(n_dimensions,
                                              physics[key])
+            elif key.lower() == 'linear_elasticity':
+                tprint('linear elasticity')
+                linear_elasticity = LinearElasticity(n_dimensions,
+                                                     physics[key])
             elif key.lower() == 'solid_mechanics':
                 assert False, 'not supported yet'
             else:

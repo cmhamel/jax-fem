@@ -1,3 +1,4 @@
+import jax.ops
 from jax import jit
 import jax.numpy as jnp
 
@@ -138,6 +139,32 @@ class GenesisMesh(Mesh):
         connectivity = []
         exodus3.collectElemConnectivity(self.exo, connectivity)
         connectivity = jnp.array(connectivity) - 1
+        return connectivity
+
+    # method to create a new connectivity matrix for multi-dof per node problems
+    #
+    def make_multiple_dof_connectivity(self, n_dof):
+
+        # error checking and uninteresting cases
+        #
+        assert n_dof > 0
+        if n_dof == 1:
+            return self.connectivity
+
+        connectivity = jnp.zeros((self.connectivity.shape[0], n_dof * self.connectivity.shape[1]), dtype=jnp.int32)
+
+        # connectivity = []
+        for e in range(self.connectivity.shape[0]):
+            for n in range(self.connectivity.shape[1]):
+                connectivity = jax.ops.index_update(connectivity, jax.ops.index[e, n_dof * n],
+                                                    n_dof * self.connectivity[e, n])
+
+            for n in range(n_dof * self.connectivity.shape[1]):
+                if n % n_dof == 0:
+                    continue
+                else:
+                    connectivity = jax.ops.index_update(connectivity, jax.ops.index[e, n], connectivity[e, n - 1] + 1)
+
         return connectivity
 
     def read_node_set_nodes(self):
