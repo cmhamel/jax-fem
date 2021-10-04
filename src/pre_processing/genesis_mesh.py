@@ -1,11 +1,11 @@
 import jax.ops
 from jax import jit
 import jax.numpy as jnp
-
 import exodus3
 from exodus3 import exodus
 from .mesh import Mesh
 from util import SuppressStdOutput
+from util import general_tardigrade_error
 
 
 class GenesisMesh(Mesh):
@@ -113,10 +113,7 @@ class GenesisMesh(Mesh):
                                                  y_coordinates.reshape((-1, 1)),
                                                  z_coordinates.reshape((-1, 1))), 1)
         else:
-            try:
-                assert False
-            except AssertionError:
-                raise Exception('Bad number df dimensions in GenesisMesh')
+            general_tardigrade_error('Bad number of dimensions in GenesisMesh')
 
         return nodal_coordinates
 
