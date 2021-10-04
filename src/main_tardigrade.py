@@ -2,6 +2,7 @@ import os
 import yaml
 from art import tprint
 import argparse
+from util import general_tardigrade_error
 from physics import PoissonEquation
 from physics import SteadyStateHeatConduction
 from physics import RadiativeTransfer
@@ -68,20 +69,13 @@ if __name__ == '__main__':
                     heat_transfer = TransientHeatConduction(n_dimensions,
                                                             physics[key])
                 else:
-                    try:
-                        assert False
-                    except AssertionError:
-                        raise Exception('Unsupported time dependence')
+                    general_tardigrade_error('Unsupported time dependence')
             elif key.lower() == 'radiative_transfer':
                 tprint('radiative transfer')
                 radiative_transfer = RadiativeTransfer(n_dimensions,
                                                        physics[key])
             elif key.lower() == 'species_transport':
                 tprint('species transport')
-                # species_transport = SpeciesTransport(n_dimensions,
-                #                                      physics[key])
-                # species_transport = ExplicitSpeciesTransport(n_dimensions,
-                #                                              physics[key])
                 species_transport = SpeciesTransport(n_dimensions,
                                                      physics[key])
             elif key.lower() == 'cahn_hilliard':
@@ -95,8 +89,5 @@ if __name__ == '__main__':
             elif key.lower() == 'solid_mechanics':
                 assert False, 'not supported yet'
             else:
-                try:
-                    assert False
-                except AssertionError:
-                    raise Exception('Physics not supported currently')
+                general_tardigrade_error('Physics not supported currently')
 

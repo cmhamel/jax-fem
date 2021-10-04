@@ -153,17 +153,15 @@ class GenesisMesh(Mesh):
 
         connectivity = jnp.zeros((self.connectivity.shape[0], n_dof * self.connectivity.shape[1]), dtype=jnp.int32)
 
-        # connectivity = []
-        for e in range(self.connectivity.shape[0]):
-            for n in range(self.connectivity.shape[1]):
-                connectivity = jax.ops.index_update(connectivity, jax.ops.index[e, n_dof * n],
-                                                    n_dof * self.connectivity[e, n])
+        for n in range(self.connectivity.shape[1]):
+            connectivity = jax.ops.index_update(connectivity, jax.ops.index[:, n_dof * n],
+                                                n_dof * self.connectivity[:, n])
 
-            for n in range(n_dof * self.connectivity.shape[1]):
-                if n % n_dof == 0:
-                    continue
-                else:
-                    connectivity = jax.ops.index_update(connectivity, jax.ops.index[e, n], connectivity[e, n - 1] + 1)
+        for n in range(n_dof * self.connectivity.shape[1]):
+            if n % n_dof == 0:
+                continue
+            else:
+                connectivity = jax.ops.index_update(connectivity, jax.ops.index[:, n], connectivity[:, n - 1] + 1)
 
         return connectivity
 
@@ -173,6 +171,9 @@ class GenesisMesh(Mesh):
             node_set_nodes.append(self.exo.get_node_set_nodes(node_set) - 1)
 
         return node_set_nodes
+
+    def modify_node_list_for_multiple_dofs(self, n_dof):
+        pass
 
     def read_side_set_elements_and_faces(self):
         pass
