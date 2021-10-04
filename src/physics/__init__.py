@@ -1,4 +1,6 @@
 # from .poisson_equation import PoissonEquation
+from .initial_conditions import InitialCondition
+from .physics import Physics
 from .poisson_equation import PoissonEquation
 from .heat_transfer import SteadyStateHeatConduction
 from .radiative_transfer import RadiativeTransfer

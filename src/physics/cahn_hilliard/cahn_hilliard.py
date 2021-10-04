@@ -1,314 +1,226 @@
 import jax
 import jax.numpy as jnp
-from jax import random
-from jax import jacfwd
-# import random
 from jax import jit
-from elements import LineElement
+from jax import jacfwd
+from jax import random
 from elements import QuadElement
-from solvers import NewtonRaphsonSolver
-# from solvers import NewtonRaphsonTransientSolver
-from ..physics import Physics
-from ..initial_conditions import InitialCondition
-from ..boundary_conditions import DirichletBoundaryCondition
-from ..boundary_conditions import NeumannBoundaryCondition
-from ..constitutive_models import FouriersLaw
+from time_control import TimeControl
+from physics import Physics
 
 
 class CahnHilliard(Physics):
-    def __init__(self, n_dimensions, mesh_input):
-        super(CahnHilliard, self).__init__(n_dimensions, mesh_input)
+    def __init__(self, n_dimensions, physics_input):
+        super(CahnHilliard, self).__init__(n_dimensions, physics_input)
         print(self)
-
-        # set number of degress of freedom per node
-        #
-        # dof 1 = c
-        # dof 2 = mu
-        #
         self.n_dof_per_node = 2
+        self.M_prop = 1.0
+        self.lambda_prop = 0.01
+        print('Number of degrees of freedom per node = %s' % self.n_dof_per_node)
 
-        # get some boundary conditions
-        #
-        self.dirichlet_bcs = []
-        self.dirichlet_bcs_nodes = []
-        self.dirichlet_bcs_values = []
-        for key in self.boundary_conditions_input_block.keys():
-            bc_type = self.boundary_conditions_input_block[key]
-            for i, bc in enumerate(bc_type):
-                self.dirichlet_bcs.append(
-                    DirichletBoundaryCondition(node_set_name=bc['node_set'],
-                                               node_set_nodes=self.genesis_mesh.node_set_nodes[i],
-                                               bc_type=bc['type'].lower(),
-                                               value=bc['value']))
-                self.dirichlet_bcs_nodes.append(self.dirichlet_bcs[i].node_set_nodes)
-                self.dirichlet_bcs_values.append(self.dirichlet_bcs[i].values)
-
-        self.dirichlet_bcs_nodes = jnp.array(self.dirichlet_bcs_nodes)
-        self.dirichlet_bcs_values = jnp.array(self.dirichlet_bcs_values)
-
-        # TODO add Neumann BC support
-        #
-
-        # initialize the element type
-        #
         self.element_objects = []
         self.constitutive_models = []
         for n, block in enumerate(self.blocks_input_block):
+            self.element_objects.append(
+                QuadElement(quadrature_order=block['cell_interpolation']['quadrature_order'],
+                            shape_function_order=block['cell_interpolation']['shape_function_order']))
+            print('Block number = %s' % str(n + 1))# initial conditions
 
-            # set up elements
-            #
-            if self.n_dimensions == 1:
-                self.element_objects.append(
-                    LineElement(quadrature_order=block['cell_interpolation']['quadrature_order'],
-                                shape_function_order=block['cell_interpolation']['shape_function_order']))
-            elif self.n_dimensions == 2:
-                self.element_objects.append(
-                    QuadElement(quadrature_order=block['cell_interpolation']['quadrature_order'],
-                                shape_function_order=block['cell_interpolation']['shape_function_order']))
-            else:
-                try:
-                    assert False
-                except AssertionError:
-                    raise Exception('Unsupported number of dimensions in PoissonEquation')
-
-            # print details about the blocks
-            #
-            print('Block number = %s' % str(n + 1))
-            # print(self.constitutive_models[n])
-
-        # set up a solver
-        #
-        self.solver = NewtonRaphsonSolver(self.solver_input_block,
-                                          len(self.genesis_mesh.nodal_coordinates),
-                                          1,
-                                          self.genesis_mesh.connectivity,
-                                          self.enforce_bcs_on_u,
-                                          self.enforce_bcs_on_residual,
-                                          self.enforce_bcs_on_tangent,
-                                          self.assemble_linear_system)
-
-        # set initial conditions
+        # make a nodelist in case ya need it
         #
         node_list = jnp.arange(0, self.genesis_mesh.nodal_coordinates.shape[0])
-        # seed = random.PRNGKey(1701)
-        c_ic = InitialCondition('function', node_list,
-                                function=lambda: random.uniform(random.PRNGKey(128),
-                                                                shape=(node_list.shape[0], ),
-                                                                minval=0, maxval=1))
-        mu_ic = InitialCondition('constant', node_list,
-                                 value=0.0)
-
-        self.c = c_ic.values
-        self.mu = mu_ic.values
-        self.post_process_2d(1, 0.0)
-
-        # print(c_ic.values)
-        # print(mu_ic.values)
-        # assert False
-
-        # make an initial guess on the solution
-        #
-        u_0 = jnp.zeros(len(self.genesis_mesh.nodal_coordinates[:, 0]) * self.n_dof_per_node,
-                        dtype=jnp.float64)
-        self.u_old = jnp.zeros(len(self.genesis_mesh.nodal_coordinates[:, 0]) * self.n_dof_per_node,
-                               dtype=jnp.float64)
-
-        # set initial condition to the appropriate values
-        #
-        self.c_entries = jnp.arange(0, 2 * len(node_list), step=2)
-        self.mu_entries = jnp.arange(1, 2 * len(node_list), step=2)
-        self.u_0 = jax.ops.index_update(self.u_old, jax.ops.index[self.c_entries], c_ic.values)
-        self.u_0 = jax.ops.index_update(self.u_old, jax.ops.index[self.mu_entries], mu_ic.values)
-        self.u_old = jax.ops.index_update(self.u_old, jax.ops.index[self.c_entries], c_ic.values)
-        self.u_old = jax.ops.index_update(self.u_old, jax.ops.index[self.mu_entries], mu_ic.values)
 
         self.time_control_block = self.physics_input['time_control']
-        print(self.time_control_block)
+        self.time_control = TimeControl(self.time_control_block)
 
-        if self.time_control_block['type'].lower() == 'transient':
-            self.t_0 = self.time_control_block['time_initial']
-            self.t_end = self.time_control_block['time_end']
-            self.delta_t = self.time_control_block['time_increment']
+        # jit everything
+        #
+        # self.jit_dfdc = jit(jacfwd(self.f))
+        self.jit_calculate_element_level_mass_matrix = jit(self.calculate_element_level_mass_matrix)
+        self.jit_calculate_element_level_stiffness_matrix = jit(self.calculate_element_level_stiffness_matrix)
+        self.jit_calculate_element_level_right_hand_side = jit(self.calculate_element_level_right_hand_side)
+        self.jit_assemble_mass_matrix = jit(self.assemble_mass_matrix)
+        self.jit_assemble_stiffness_matrix = jit(self.assemble_stiffness_matrix)
+        self.jit_assemble_right_hand_side = jit(self.assemble_right_hand_side)
 
-            for n in range(len(self.dirichlet_bcs)):
-                self.dirichlet_bcs[n].time_end = self.t_end
+        # set initial conditions, mu = 0 at t = 0 and c = some random shit at t = 0
+        #
+        # self.c_old = 0.63 + 0.02 * (0.5 - random.uniform(random.PRNGKey(128), shape=(node_list.shape[0], ), minval=0,
+        #                                                  maxval=1))
+        self.c_old = random.uniform(random.PRNGKey(1028), shape=(node_list.shape[0], ), minval=0, maxval=1)
+        self.mu_old = jnp.zeros(len(node_list), dtype=jnp.float64)
 
-            # loop over time
-            #
-            self.t = self.t_0 + self.delta_t
-            time_step = 1
-            while self.t < self.t_end:
+        # calculate mass matrix up front
+        #
+        self.M = self.assemble_mass_matrix()
+        self.M_lumped = jnp.sum(self.M, axis=1)
+        self.max_eigenvalue = jnp.max(self.M_lumped)
 
-                # update dirichlet bcs
-                #
-                # for n in range(len(self.dirichlet_bcs)):
-                #     temp_values = self.dirichlet_bcs[n].update_bc_values(time=self.t)
-                #     self.dirichlet_bcs_values = jax.ops.index_update(self.dirichlet_bcs_values, jax.ops.index[n, :],
-                #                                                      temp_values)
-                # now solve
-                #
-                self.u = self.solver.solve(time_step, u_0, self.dirichlet_bcs_nodes, self.dirichlet_bcs_values)
+        # finally solve
+        #
+        self.solve()
 
-                # update
-                #
-                u_0 = self.u
-                self.u_old = u_0
-                self.c = self.u[self.c_entries]
-                self.mu = self.u[self.mu_entries]
-
-                time_step = time_step + 1
-                self.t = self.t + self.delta_t
-
-                # post-process
-                #
-                if n_dimensions == 1:
-                    self.post_process_1d()
-                elif n_dimensions == 2:
-                    self.post_process_2d(time_step, self.t)
-                else:
-                    try:
-                        assert False
-                    except AssertionError:
-                        raise Exception('Unsupported number of dimensions to postprocess')
-
-            self.post_processor.exo.close()
-
-    @staticmethod
-    def f(c):
+    def f(self, c):
         return 100.0 * c**2 * (1.0 - c)**2
 
-    def df_dc(self, c):
-        return jacfwd(self.f)(c)
+    def dfdc(self, c):
+        # return 100.0 * (2.0 * c * (1.0 - c)**2 - 2.0 * c**2 * (1.0 - c))
+        return c**3 - c
 
-    @staticmethod
-    def enforce_bcs_on_u(i, input):
-        u_temp, bcs_nodes, bcs_values = input
-        # bc_nodes, bc_values = bcs_nodes[i], bcs_values[i]
-        # u_temp = jax.ops.index_update(u_temp, jax.ops.index[bc_nodes], bc_values)
-        return u_temp, bcs_nodes, bcs_values
+    def solve(self):
+        self.post_process(1, 0.0, self.c_old, self.mu_old)
+        self.time_control.increment_time()
+        c_old = self.c_old
+        mu_old = self.mu_old
+        print('{0:8}\t\t{1:8}\t\t{2:8}\t\t{3:8}'.
+              format('Increment', 'Time', '|dc|', '|dmu|'))
+        while self.time_control.t <= self.time_control.time_end:
+            K_c = self.jit_assemble_stiffness_matrix(mu_old, self.M_prop)
+            K_mu = self.jit_assemble_stiffness_matrix(c_old, self.lambda_prop)
+            R_mu = self.jit_assemble_right_hand_side(c_old)
 
-    # force residual to be 0 on dofs with dirchlet bcs
-    #
-    @staticmethod
-    def enforce_bcs_on_residual(i, input):
-        residual_temp, bcs_nodes = input
-        # bc_nodes = bcs_nodes[i]
-        # residual_temp = jax.ops.index_update(residual_temp, jax.ops.index[bc_nodes], 0.0)
-        return residual_temp, bcs_nodes
+            c = c_old - self.time_control.time_increment * jnp.matmul(K_c, mu_old) / self.M_lumped
+            mu = (R_mu - jnp.matmul(K_mu, c_old)) / self.M_lumped
 
-    # enforce dirichlet BCs in the tangent matrix
-    #
-    @staticmethod
-    def enforce_bcs_on_tangent(i, input):
-        tangent_temp, bcs_nodes, bcs_values = input
-        # bc_nodes, bc_values = bcs_nodes[i], bcs_values[i]
-        # tangent_temp = jax.ops.index_update(tangent_temp, jax.ops.index[bc_nodes, bc_nodes], 1.0)
-        return tangent_temp, bcs_nodes, bcs_values
+            if self.time_control.time_step_number % 100 == 0:
+                print('{0:8}\t\t{1:8}\t\t{2:8}\t\t{3:8}'.
+                      format('Increment', 'Time', '|dc|', '|dmu|'))
+            if self.time_control.time_step_number % 10 == 0:
+                delta_c_error = jnp.linalg.norm(c - c_old)
+                delta_mu_error = jnp.linalg.norm(mu - mu_old)
+                print('{0:8}\t\t{1:.8e}\t\t{2:.8e}\t\t{3:.8e}'.
+                      format(self.time_control.time_step_number, self.time_control.t,
+                             delta_c_error.ravel()[0],
+                             delta_mu_error.ravel()[0]))
 
-    def calculate_element_level_residual(self, nodal_fields):
-        """
-        :param nodal_fields: relevant nodal fields
-        :return: the integrated element level residual vector
-        """
-        coords, c_nodal, c_nodal_old, mu_nodal, mu_nodal_old = nodal_fields
-        R_c_e = jnp.zeros(self.genesis_mesh.n_nodes_per_element[0], dtype=jnp.float64)
-        R_mu_e = jnp.zeros(self.genesis_mesh.n_nodes_per_element[0], dtype=jnp.float64)
+            if self.time_control.time_step_number % 50 == 0:
+                self.post_process(self.time_control.time_step_number, self.time_control.t, c, mu)
 
-        def quadrature_calculation(q, input):
-            """
-            :param q: the index of the current quadrature point
-            :param R_element: the element level residual
-            :return: the element level residual for this quadrature point only
-            """
-            R_c_element, R_mu_element = input
-            N_xi = self.element_objects[0].N_xi[q, :, :]
-            grad_N_X = self.element_objects[0].map_shape_function_gradients(coords)[q, :, :]
-            JxW = self.element_objects[0].calculate_JxW(coords)[q, 0]
+            c_old = c
+            mu_old = mu
+            self.time_control.increment_time()
 
-            M = 1.0
-            lambda_ = 0.01
-            c_q, c_q_old = jnp.matmul(c_nodal, N_xi), jnp.matmul(c_nodal_old, N_xi)
-            mu_q, mu_q_old = jnp.matmul(mu_nodal, N_xi), jnp.matmul(mu_nodal_old, N_xi)
-            grad_c_q = jnp.matmul(grad_N_X.T, c_nodal).reshape((-1, 1))
-            grad_mu_q = jnp.matmul(grad_N_X.T, mu_nodal).reshape((-1, 1))
-            df_dc_q = self.df_dc(c_q)
+    def assemble_mass_matrix(self):
+        mass_matrix = jnp.zeros((self.genesis_mesh.nodal_coordinates.shape[0],
+                                 self.genesis_mesh.nodal_coordinates.shape[0]),
+                                dtype=jnp.float64)
+        connectivity = self.genesis_mesh.connectivity
+        coordinates = self.genesis_mesh.nodal_coordinates[connectivity]
 
-            R_c_q = JxW * (c_q - c_q_old) * N_xi + \
-                    JxW * self.delta_t * M * jnp.matmul(grad_N_X, grad_mu_q)
-            R_mu_q = JxW * mu_q * N_xi - \
-                     JxW * df_dc_q * N_xi - \
-                     JxW * lambda_ * jnp.matmul(grad_N_X, grad_c_q)
-            R_c_element = jax.ops.index_add(R_c_element, jax.ops.index[:], R_c_q[:, 0])
-            R_mu_element = jax.ops.index_add(R_mu_element, jax.ops.index[:], R_mu_q[:, 0])
+        # jit the element level mass matrix calculator
+        #
+        def element_calculation(e, input):
+            mass_matrix_temp = input
+            M_e = self.jit_calculate_element_level_mass_matrix(coordinates[e])
+            indices = jnp.ix_(connectivity[e], connectivity[e])
+            mass_matrix_temp = jax.ops.index_add(mass_matrix_temp, jax.ops.index[indices], M_e)
+            return mass_matrix_temp
 
-            return R_c_element, R_mu_element
+        mass_matrix = jax.lax.fori_loop(0, self.genesis_mesh.n_elements_in_blocks[0], element_calculation,
+                                        mass_matrix)
 
-        R_c_e, R_mu_e = jax.lax.fori_loop(0, self.element_objects[0].n_quadrature_points, quadrature_calculation,
-                                          (R_c_e, R_mu_e))
+        return mass_matrix
 
-        return R_c_e, R_mu_e
+    def assemble_stiffness_matrix(self, u_old, k_prop):
+        stiffness_matrix = jnp.zeros((self.genesis_mesh.nodal_coordinates.shape[0],
+                                      self.genesis_mesh.nodal_coordinates.shape[0]),
+                                     dtype=jnp.float64)
+        connectivity = self.genesis_mesh.connectivity
+        coordinates = self.genesis_mesh.nodal_coordinates[connectivity]
 
-    def assemble_linear_system(self, u):
+        # jit the element level mass matrix calculator
+        #
+        def element_calculation(e, input):
+            stiffness_matrix_temp = input
+            K_e = self.jit_calculate_element_level_stiffness_matrix((coordinates[e], u_old, k_prop))
+            indices = jnp.ix_(connectivity[e], connectivity[e])
+            stiffness_matrix_temp = jax.ops.index_add(stiffness_matrix_temp, jax.ops.index[indices], K_e)
+            return stiffness_matrix_temp
 
+        stiffness_matrix = jax.lax.fori_loop(0, self.genesis_mesh.n_elements_in_blocks[0], element_calculation,
+                                             stiffness_matrix)
+
+        return stiffness_matrix
+
+    def assemble_right_hand_side(self, u_old):
         # set up residual and grab connectivity for convenience
         #
-        residual = jnp.zeros_like(u)
-        residual_c = jnp.zeros(self.c_entries.shape[0], dtype=jnp.float64)
-        residual_mu = jnp.zeros(self.mu_entries.shape[0], dtype=jnp.float64)
-
         connectivity = self.genesis_mesh.connectivity
-
         coordinates = self.genesis_mesh.nodal_coordinates[connectivity]
-        c_nodal, mu_nodal = u[self.c_entries], u[self.mu_entries]
-        c_nodal_old, mu_nodal_old = self.u_old[self.c_entries], self.u_old[self.mu_entries]
 
-        # u_element_wise = u[connectivity]
-        # u_element_wise_old = self.u_old[connectivity]
+        R = jnp.zeros_like(u_old)
 
-        c_element_wise, mu_element_wise = c_nodal[connectivity], mu_nodal[connectivity]
-        c_element_wise_old, mu_element_wise_old = c_nodal_old[connectivity], mu_nodal_old[connectivity]
-
-        # jit the element level residual calculator
-        #
-        jit_calculate_element_level_residual = jit(self.calculate_element_level_residual)
+        u_element_wise_old = u_old[connectivity]
 
         def element_calculation(e, input):
-            residual_c_temp, residual_mu_temp = input
-            R_c_e, R_mu_e = jit_calculate_element_level_residual((coordinates[e],
-                                                                  c_element_wise[e], c_element_wise_old[e],
-                                                                  mu_element_wise[e], mu_element_wise_old[e]))
+            rhs_temp = input
+            R_e = self.jit_calculate_element_level_right_hand_side((coordinates[e], u_element_wise_old[e]))
+            rhs_temp = jax.ops.index_add(rhs_temp, jax.ops.index[connectivity[e]], R_e)
+            return rhs_temp
 
-            residual_c_temp = jax.ops.index_add(residual_c_temp, jax.ops.index[connectivity[e]], R_c_e)
-            residual_mu_temp = jax.ops.index_add(residual_mu_temp, jax.ops.index[connectivity[e]], R_mu_e)
-            # residual_temp = jax.ops.index_add(residual_temp, jax.ops.index[self.c_entries], residual_c_temp)
-            # residual_temp = jax.ops.index_add(residual_temp, jax.ops.index[self.mu_entries], residual_mu_temp)
-            return residual_c_temp, residual_mu_temp
-
-        residual_c, residual_mu = jax.lax.fori_loop(0, self.genesis_mesh.n_elements_in_blocks[0],
-                                                    element_calculation,
-                                                    (residual_c, residual_mu))
-
-        residual = jax.ops.index_update(residual, jax.ops.index[self.c_entries], residual_c)
-        residual = jax.ops.index_update(residual, jax.ops.index[self.mu_entries], residual_mu)
-
-        # adjust residual to satisfy dirichlet conditions
-        #
-        # residual, _ = jax.lax.fori_loop(0, len(self.dirichlet_bcs),
-        #                                 self.enforce_bcs_on_residual, (residual, self.dirichlet_bcs_nodes))
-
-        # print(residual.shape)
+        residual = jax.lax.fori_loop(0, self.genesis_mesh.n_elements_in_blocks[0], element_calculation, R)
 
         return residual
 
-    def post_process_1d(self):
-        import matplotlib.pyplot as plt
-        plt.plot(self.genesis_mesh.nodal_coordinates, self.u)
-        plt.plot(self.genesis_mesh.nodal_coordinates, -0.5 * self.genesis_mesh.nodal_coordinates ** 2 +
-                 0.5 * self.genesis_mesh.nodal_coordinates,
-                 linestyle='None', marker='o')
-        plt.show()
+    def calculate_element_level_mass_matrix(self, coords):
+        M_e = jnp.zeros((self.genesis_mesh.n_nodes_per_element[0],
+                         self.genesis_mesh.n_nodes_per_element[0]),
+                        dtype=jnp.float64)
+        JxW_element = self.element_objects[0].calculate_JxW(coords)
 
-    def post_process_2d(self, time_step, time):
+        def quadrature_calculation(q, M_element):
+            N_xi = self.element_objects[0].N_xi[q, :, :]
+            JxW = JxW_element[q, 0]
+            M_q = JxW * jnp.matmul(N_xi, N_xi.transpose())
+            M_element = jax.ops.index_add(M_element, jax.ops.index[:, :], M_q)
+            return M_element
+
+        M_e = jax.lax.fori_loop(0, self.element_objects[0].n_quadrature_points, quadrature_calculation, M_e)
+
+        return M_e
+
+    def calculate_element_level_stiffness_matrix(self, inputs):
+        coords, u_old, k_prop = inputs
+        K_e = jnp.zeros((self.genesis_mesh.n_nodes_per_element[0],
+                         self.genesis_mesh.n_nodes_per_element[0]),
+                        dtype=jnp.float64)
+        grad_N_X_element = self.element_objects[0].map_shape_function_gradients(coords)
+        JxW_element = self.element_objects[0].calculate_JxW(coords)
+
+        def quadrature_calculation(q, K_element):
+            grad_N_X = grad_N_X_element[q, :, :]
+            JxW = JxW_element[q, 0]
+            K_q = JxW * k_prop * jnp.matmul(grad_N_X, grad_N_X.T)
+            K_element = jax.ops.index_add(K_element, jax.ops.index[:, :], K_q)
+            return K_element
+
+        K_e = jax.lax.fori_loop(0, self.element_objects[0].n_quadrature_points, quadrature_calculation, K_e)
+
+        return K_e
+
+    def calculate_element_level_right_hand_side(self, inputs):
+        coords, u_nodal_old = inputs
+        R_e = jnp.zeros(self.genesis_mesh.n_nodes_per_element[0], dtype=jnp.float64)
+        JxW_element = self.element_objects[0].calculate_JxW(coords)
+
+        def quadrature_calculation(q, R_element):
+            N_xi = self.element_objects[0].N_xi[q, :, :]
+            JxW = JxW_element[q, 0]
+
+            # u_q_old = N_xi * u_nodal_old
+            u_q_old = jnp.matmul(u_nodal_old, N_xi)
+            # dfdc_q = self.jit_dfdc(u_q_old)
+            dfdc_q = self.dfdc(u_q_old)
+            R_q = JxW * dfdc_q * N_xi
+
+            R_element = jax.ops.index_add(R_element, jax.ops.index[:], R_q[:, 0])
+
+            return R_element
+
+        R_e = jax.lax.fori_loop(0, self.element_objects[0].n_quadrature_points, quadrature_calculation, R_e)
+
+        return R_e
+
+    def post_process(self, time_step, time, c, mu):
         self.post_processor.exo.put_time(time_step, time)
-        self.post_processor.write_nodal_scalar_variable('c', time_step, jnp.asarray(self.c))
-        self.post_processor.write_nodal_scalar_variable('mu', time_step, jnp.asarray(self.mu))
+        self.post_processor.write_nodal_scalar_variable('c', time_step, jnp.asarray(c))
+        self.post_processor.write_nodal_scalar_variable('mu', time_step, jnp.asarray(mu))

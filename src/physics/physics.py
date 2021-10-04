@@ -8,9 +8,10 @@ from jax import jit, partial
 
 
 class Physics:
-    def __init__(self, n_dimensions, physics_input):
+    def __init__(self, n_dimensions, physics_input, use_dummy_physics=False):
         self.n_dimensions = n_dimensions
         self.physics_input = physics_input
+        self.use_dummy_physics = use_dummy_physics
 
         # grab some different blocks of the input deck
         #

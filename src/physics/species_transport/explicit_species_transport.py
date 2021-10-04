@@ -166,7 +166,7 @@ class ExplicitSpeciesTransport(Physics):
         connectivity = self.genesis_mesh.connectivity
         coordinates = self.genesis_mesh.nodal_coordinates[connectivity]
 
-        # jit the element level mass matrix calculator
+        # jit thasse element level mass matrix calculator
         #
         jit_calculate_element_level_mass_matrix = jit(self.calculate_element_level_mass_matrix)
 
