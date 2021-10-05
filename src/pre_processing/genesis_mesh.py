@@ -169,8 +169,26 @@ class GenesisMesh(Mesh):
 
         return node_set_nodes
 
-    def modify_node_list_for_multiple_dofs(self, n_dof):
-        pass
+    def modify_node_list_for_multiple_dofs(self, n_dof, node_set_number):
+        assert n_dof > 0
+        if n_dof == 1:
+            return self.node_set_nodes[node_set_number]
+
+        node_set_nodes = jnp.zeros(n_dof * self.node_set_nodes[node_set_number].shape[0])
+
+        node_set_nodes = jax.ops.index_update(node_set_nodes, jax.ops.index[::n_dof],
+                                              n_dof * self.node_set_nodes[node_set_number])
+        # for n in range(n_dof):
+        #     node_set_nodes = jax.ops.index_update(node_set_nodes, jax.ops.index[n::2],
+        #                                           )
+        for n in range(len(node_set_nodes)):
+            if n % n_dof == 0:
+                continue
+            else:
+                node_set_nodes = jax.ops.index_update(node_set_nodes, jax.ops.index[n],
+                                                      node_set_nodes[n - 1] + 1)
+
+        return node_set_nodes
 
     def read_side_set_elements_and_faces(self):
         pass
