@@ -20,11 +20,11 @@ class DisplacementBoundaryCondition:
         elif self.components == ['x']:
             # remove the first element and every other two
             #
-            self.bc_nodes = jnp.delete(self.bc_nodes, jax.ops.index[::n_dof])
+            self.bc_nodes = jnp.delete(self.bc_nodes, jax.ops.index[1::n_dof])
         elif self.components == ['y']:
             # remove the second element and every other two
             #
-            self.bc_nodes = jnp.delete(self.bc_nodes, jax.ops.index[1::n_dof])
+            self.bc_nodes = jnp.delete(self.bc_nodes, jax.ops.index[::n_dof])
         else:
             general_tardigrade_error('Unsupported component in DisplacementBoundaryCondition')
 

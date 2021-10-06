@@ -47,9 +47,6 @@ class LinearElasticity(Physics):
             self.displacement_bc_nodes = jnp.hstack((self.displacement_bc_nodes, bc.bc_nodes))
             self.displacement_bc_values = jnp.hstack((self.displacement_bc_values, bc.values))
 
-        print(self.displacement_bc_nodes)
-        print(type(self.displacement_bc_nodes))
-
         # set up force boundary conditions
         #
         # TODO
@@ -82,11 +79,45 @@ class LinearElasticity(Physics):
         self.solve()
 
     def solve(self):
+        force_vector = jnp.zeros(self.K.shape[0], dtype=jnp.float64)
         stiffness_matrix = self.K
+
+        force_for_reaction = force_vector[self.displacement_bc_nodes]
+        stiffness_for_reaction = stiffness_matrix[self.displacement_bc_nodes, self.displacement_bc_nodes]
+
+        # penalty method used for enforcing displacement boundary conditions
+        #
         penalty = 1.0e6 * jnp.trace(stiffness_matrix) / stiffness_matrix.shape[0]
+        force_vector = jax.ops.index_update(force_vector, jax.ops.index[self.displacement_bc_nodes],
+                                            penalty * self.displacement_bc_values)
         stiffness_matrix = jax.ops.index_update(stiffness_matrix,
                                                 jax.ops.index[self.displacement_bc_nodes, self.displacement_bc_nodes],
                                                 penalty)
+
+        # solve for the displacement vector
+        #
+        displacement_vector = jnp.linalg.solve(stiffness_matrix, force_vector)
+        u_x = displacement_vector[::2]
+        u_y = displacement_vector[1::2]
+        u = jnp.vstack((u_x, u_y)).T
+        # print(u)
+
+        # now get the reaction force
+        #
+        reaction = jnp.zeros_like(force_vector)
+        stiffness_matrix = jax.ops.index_update(stiffness_matrix,
+                                                jax.ops.index[self.displacement_bc_nodes, self.displacement_bc_nodes],
+                                                stiffness_for_reaction)
+        reaction_temp = jnp.matmul(stiffness_matrix[self.displacement_bc_nodes, :], displacement_vector) - \
+                        force_for_reaction
+        reaction = jax.ops.index_update(reaction, jax.ops.index[self.displacement_bc_nodes], reaction_temp)
+        reaction_x = reaction[::2]
+        reaction_y = reaction[1::2]
+        reaction = jnp.vstack((reaction_x, reaction_y)).T
+
+        self.post_processor.exo.put_time(1, 0.0)
+        self.post_processor.write_nodal_vector_variable('disp', 1, u)
+        self.post_processor.write_nodal_vector_variable('reaction', 1, reaction)
 
     def assemble_stiffness_matrix(self):
         stiffness_matrix = jnp.zeros((self.genesis_mesh.nodal_coordinates.shape[0] * self.n_dof_per_node,
@@ -105,17 +136,15 @@ class LinearElasticity(Physics):
         stiffness_matrix = jax.lax.fori_loop(0, self.genesis_mesh.n_elements_in_blocks[0], element_calculation,
                                              stiffness_matrix)
 
-        # modify to satisfy BCs
-        # #
-        # penalty = 1.0e6 * jnp.trace(stiffness_matrix) / stiffness_matrix.shape[0]
-        # stiffness_matrix = jax.ops.index_update(stiffness_matrix,
-        #                                         jax.ops.index[self.displacement_bc_nodes, self.displacement_bc_nodes],
-        #                                         penalty)
-
         return stiffness_matrix
 
     def assemble_force_vector(self):
-        pass
+        force_vector = jnp.zeros(self.genesis_mesh.nodal_coordinates.shape[0] * self.n_dof_per_node, dtype=jnp.float64)
+        coordinates = self.genesis_mesh.nodal_coordinates[self.genesis_mesh.connectivity]
+        dof_connectivity = self.dof_connectivity
+
+        def element_calculation(e, input):
+            pass
 
     def calculate_element_level_stiffness_matrix(self, input):
         n_dof_per_element = self.genesis_mesh.n_nodes_per_element[0] * self.n_dof_per_node
@@ -137,9 +166,4 @@ class LinearElasticity(Physics):
         return K_e
 
     def calculate_element_level_force_vector(self):
-        force_vector = jnp.zeros(self.genesis_mesh.nodal_coordinates.shape[0] * self.n_dof_per_node, dtype=jnp.float64)
-        coordinates = self.genesis_mesh.nodal_coordinates[self.genesis_mesh.connectivity]
-        dof_connectivity = self.dof_connectivity
-
-        def element_calculation(e, input):
-            pass
+        pass
