@@ -7,8 +7,8 @@ import jax
 
 class QuadElement(ElementBaseClass):
     """
-        Line element for 1D code development and educational purposes
-        """
+    2D quadrilateral element for 2D code development and educational purposes
+    """
 
     def __init__(self, quadrature_order, shape_function_order):
         super(QuadElement, self).__init__()
@@ -150,3 +150,16 @@ class QuadElement(ElementBaseClass):
 
         return grad_N_X
 
+    @partial(jit, static_argnums=(0,))
+    def calculate_B_matrix(self, nodal_coordinates):
+        B = jnp.zeros((self.n_quadrature_points, 3, 2 * self.n_nodes))
+        grad_N_X = self.map_shape_function_gradients(nodal_coordinates)
+        for q in range(self.n_quadrature_points):
+            if self.shape_function_order == 1:
+                for n in range(self.n_nodes):
+                    B = jax.ops.index_update(B, jax.ops.index[q, 0, 0 + 2 * (n - 1)], grad_N_X[q, n, 0])
+                    B = jax.ops.index_update(B, jax.ops.index[q, 1, 1 + 2 * (n - 1)], grad_N_X[q, n, 1])
+                    B = jax.ops.index_update(B, jax.ops.index[q, 2, 0 + 2 * (n - 1)], grad_N_X[q, n, 1])
+                    B = jax.ops.index_update(B, jax.ops.index[q, 2, 1 + 2 * (n - 1)], grad_N_X[q, n, 0])
+
+        return B

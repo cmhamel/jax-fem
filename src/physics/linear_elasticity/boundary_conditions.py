@@ -46,3 +46,7 @@ class DisplacementBoundaryCondition:
                  '\tComponents    = ' + str(self.components)
         return string
 
+
+class ForceBoundaryCondition:
+    def __init__(self, force_bc_input_block, n_dof, genesis_mesh, node_set_number):
+        pass

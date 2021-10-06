@@ -174,7 +174,7 @@ class GenesisMesh(Mesh):
         if n_dof == 1:
             return self.node_set_nodes[node_set_number]
 
-        node_set_nodes = jnp.zeros(n_dof * self.node_set_nodes[node_set_number].shape[0])
+        node_set_nodes = jnp.zeros(n_dof * self.node_set_nodes[node_set_number].shape[0], dtype=jnp.int32)
 
         node_set_nodes = jax.ops.index_update(node_set_nodes, jax.ops.index[::n_dof],
                                               n_dof * self.node_set_nodes[node_set_number])
