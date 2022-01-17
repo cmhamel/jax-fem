@@ -1,2 +1,2 @@
-from .element_line import LineElement
-from .element_quad import QuadElement
+from .element_factory import element_factory
+from .element_base_class import ElementBaseClass
