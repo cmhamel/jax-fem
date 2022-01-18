@@ -5,8 +5,8 @@ from .kernel_base_class import KernelBaseClass
 
 
 class Diffusion(KernelBaseClass):
-    def __init__(self, kernel_input_settings: dict) -> None:
-        super(Diffusion, self).__init__(kernel_input_settings)
+    def __init__(self, kernel_input_settings: dict, number_of_dimensions: int) -> None:
+        super(Diffusion, self).__init__(kernel_input_settings, number_of_dimensions)
         self.variable = kernel_input_settings['variable']
         self.D = kernel_input_settings['D']
 
@@ -40,7 +40,7 @@ class Diffusion(KernelBaseClass):
                 grad_N_X = self.element.map_shape_function_gradients(element_level_coordinates, q)
                 grad_u_q = jnp.matmul(grad_N_X.T, element_level_us)
                 element_level_residual = element_level_residual - \
-                                         JxW * self.D * grad_u_q * grad_N_X
+                                         JxW * self.D * jnp.matmul(grad_N_X, grad_u_q)
 
             residual_temp = jax.ops.index_add(residual_temp, jax.ops.index[element_level_connectivity],
                                               element_level_residual[:, 0])

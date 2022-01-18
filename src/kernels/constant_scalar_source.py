@@ -5,8 +5,8 @@ from .kernel_base_class import KernelBaseClass
 
 
 class ConstantScalarSource(KernelBaseClass):
-    def __init__(self, kernel_input_settings: dict) -> None:
-        super(ConstantScalarSource, self).__init__(kernel_input_settings)
+    def __init__(self, kernel_input_settings: dict, number_of_dimensions: int) -> None:
+        super(ConstantScalarSource, self).__init__(kernel_input_settings, number_of_dimensions)
         self.variable = self.kernel_input_settings['variable']
         self.constant = self.kernel_input_settings['constant']
 

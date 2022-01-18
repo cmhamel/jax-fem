@@ -5,8 +5,11 @@ from elements import ElementBaseClass
 
 
 class KernelBaseClass:
-    def __init__(self, kernel_input_settings: dict) -> None:
+    def __init__(self, kernel_input_settings: dict, number_of_dimensions: int) -> None:
         self.kernel_input_settings = kernel_input_settings
+        self.number_of_dimensions = number_of_dimensions
+        self.coupled = False  # used to track which kernels are coupled
+
         # self.blocks = self.kernel_input_settings/
 
         # TODO: need to add in hooks to element types
@@ -14,7 +17,14 @@ class KernelBaseClass:
         self.element = self._setup_element()
 
     def _setup_element(self) -> ElementBaseClass:
-        element_input_settings = {'element_type': 'line_element',
+        if self.number_of_dimensions == 1:
+            element_type = 'line_element'
+        elif self.number_of_dimensions == 2:
+            element_type = 'quad_element'
+        else:
+            assert False, 'Unsupported number of dimensions in Kernel'
+
+        element_input_settings = {'element_type': element_type,
                                   'quadrature_order': self.kernel_input_settings['quadrature_order'],
                                   'shape_function_order': self.kernel_input_settings['shape_function_order']}
         return element_factory(element_input_settings)

@@ -77,12 +77,12 @@ class GenesisMesh(MeshBaseClass):
             return x_coords.reshape((-1, 1))
 
         elif self.number_of_dimensions == 2:
-            return np.concatenate((x_coords.reshape((-1, 1)),
-                                   y_coords.reshape((-1, 1))))
+            return np.hstack((x_coords.reshape((-1, 1)),
+                              y_coords.reshape((-1, 1))))
         elif self.number_of_dimensions == 3:
-            return np.concatenate((x_coords.reshape((-1, 1)),
-                                   y_coords.reshape((-1, 1)),
-                                   z_coords.reshape((-1, 1))))
+            return jnp.hstack((x_coords.reshape((-1, 1)),
+                               y_coords.reshape((-1, 1)),
+                               z_coords.reshape((-1, 1))))
 
     def _read_element_connectivity(self) -> np.ndarray:
         connectivity = []

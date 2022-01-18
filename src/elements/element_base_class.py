@@ -79,6 +79,6 @@ class ElementBaseClass:
         """
         J_q = self.calculate_jacobian_map(nodal_coordinates, q)
         J_q_inv = jnp.linalg.inv(J_q)
-        grad_N_X = jnp.matmul(J_q_inv, self.grad_N_xi[q, :, :].T)
+        grad_N_X = jnp.matmul(J_q_inv, self.grad_N_xi[q, :, :].T).T
         return grad_N_X
 

@@ -6,5 +6,8 @@ def element_factory(element_input_settings: dict) -> ElementBaseClass:
     if element_type == 'line_element':
         from .line_element import LineElement
         return LineElement(element_input_settings)
+    elif element_type == 'quad_element':
+        from .quad_element import QuadElement
+        return QuadElement(element_input_settings)
     else:
         assert False

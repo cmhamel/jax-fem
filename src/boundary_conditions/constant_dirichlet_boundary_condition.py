@@ -28,8 +28,9 @@ class ConstantDirichletBoundaryCondition(BoundaryConditionBaseClass):
     def modify_tangent_matrix_to_satisfy_boundary_conditions(self, tangent: jnp.ndarray) -> jnp.ndarray:
         # simple penalty like method
         #
-        for n in range(len(self.node_set_nodes)):
-            tangent = jax.ops.index_update(tangent,
-                                           jax.ops.index[self.node_set_nodes[n], self.node_set_nodes[n]],
-                                           1.0)
+        def loop_body(i, temp_tangent):
+            return jax.ops.index_update(temp_tangent, jax.ops.index[self.node_set_nodes[i],
+                                                                    self.node_set_nodes[i]], 1.0)
+
+        tangent = jax.lax.fori_loop(0, len(self.node_set_nodes), loop_body, tangent)
         return tangent
