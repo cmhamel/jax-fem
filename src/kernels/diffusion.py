@@ -11,9 +11,9 @@ class Diffusion(KernelBaseClass):
         self.D = kernel_input_settings['D']
 
     def __str__(self) -> str:
-        string = 'Diffusion(KernelBaseClass):\n'
-        string = string + '\tVariable = %s\n' % self.variable
-        string = string + '\tD        = %s\n' % self.D
+        string = '    ' + __class__.__name__ + ':\n'
+        string = string + '      Variable = %s\n' % self.variable
+        string = string + '      D        = %s\n\n' % self.D
         return string
 
     def calculate_residual(self,

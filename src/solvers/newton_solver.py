@@ -18,10 +18,10 @@ class NewtonSolver(SolverBaseClass):
         self.update_solution = jit(self.update_solution)
 
     def __str__(self) -> str:
-        string = 'NewtonSolver(SolverBaseClass):\n'
-        string = string + '\tResidual tolerance  = %s\n' % self.residual_tolerance
-        string = string + '\tIncrement tolerance = %s\n' % self.increment_tolerance
-        string = string + '\tLinear solver       = %s\n' % self.linear_solver_input_settings['type']
+        string = '  ' + __class__.__name__ + ':\n'
+        string = string + '    Residual tolerance  = %s\n' % self.residual_tolerance
+        string = string + '    Increment tolerance = %s\n' % self.increment_tolerance
+        string = string + '    Linear solver       = %s\n' % self.linear_solver_input_settings['type']
         return string
 
     def calculate_total_residual(self,

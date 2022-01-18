@@ -9,12 +9,12 @@ class ConstantDirichletBoundaryCondition(BoundaryConditionBaseClass):
         self.constant = self.boundary_condition_input_settings['constant']
 
     def __str__(self) -> str:
-        string = 'ConstantDirichletBoundaryCondition(BoundaryConditionBaseClass):\n'
-        string = string + '\tNode sets = '
+        string = '    ' + __class__.__name__ + ':\n'
+        string = string + '      Node sets = '
         for node_set in self.node_sets:
             string = string + str(node_set) + ' '
         string = string + '\n'
-        string = string + '\tValue     = %s\n' % self.constant
+        string = string + '      Constant  = %s\n' % self.constant
         return string
 
     def modify_solution_vector_to_satisfy_boundary_conditions(self, u: jnp.ndarray) -> jnp.ndarray:

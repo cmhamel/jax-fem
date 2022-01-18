@@ -11,9 +11,9 @@ class ConstantScalarSource(KernelBaseClass):
         self.constant = self.kernel_input_settings['constant']
 
     def __str__(self) -> str:
-        string = 'ConstantScalarSource(KernelBaseClass):\n'
-        string = string + '\tVariable = %s\n' % self.variable
-        string = string + '\tConstant = %s\n' % self.constant
+        string = '    ' + __class__.__name__ + ':\n'
+        string = string + '      Variable = %s\n' % self.variable
+        string = string + '      Constant = %s\n\n' % self.constant
         return string
 
     def calculate_residual(self,

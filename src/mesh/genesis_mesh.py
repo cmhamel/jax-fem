@@ -45,16 +45,16 @@ class GenesisMesh(MeshBaseClass):
             self.exo.close()
 
     def __str__(self) -> str:
-        string = 'GenesisMesh(MeshBaseClass):\n'
-        string = string + '\tGenesis file name    = %s\n' % self.genesis_file
-        string = string + '\tNumber of dimensions = %s\n' % self.number_of_dimensions
-        string = string + '\tNumber of nodes      = %s\n' % self.number_of_nodes
-        string = string + '\tNumber of elements   = %s\n' % self.number_of_elements
-        string = string + '\tBlocks               = '
+        string = '  ' + __class__.__name__ + ':\n'
+        string = string + '    Genesis file name    = %s\n' % self.genesis_file
+        string = string + '    Number of dimensions = %s\n' % self.number_of_dimensions
+        string = string + '    Number of nodes      = %s\n' % self.number_of_nodes
+        string = string + '    Number of elements   = %s\n' % self.number_of_elements
+        string = string + '    Blocks               = '
         for n in range(self.blocks.shape[0]):
             string = string + str(self.blocks[n]) + ' '
         string = string + '\n'
-        string = string + '\tNode sets            = '
+        string = string + '    Node sets            = '
         for n in range(self.node_sets.shape[0]):
             string = string + str(self.node_sets[n]) + ' '
         string + string + '\n'
