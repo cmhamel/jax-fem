@@ -185,6 +185,31 @@ class Analysis:
     # public access
     #
     def run_analysis(self) -> None:
+        u = jnp.zeros((self.mesh.number_of_nodes, len(self.variables)))
+
+        # post processing setup TODO: move this to somewhere else
+        #
+        self.post_processor.write_time_step(0, 0.0)
+        for n, variable in enumerate(self.variables):
+            self.post_processor.write_nodal_values(variable, 0, np.array(u[:, n]))
+
+        residual_norm, delta_u_norm = 1.0, 1.0
+        n = 0
+        print('{0:16}{1:16}{2:16}'.format('Iteration', '|R|', '|dU|'))
+        while residual_norm > 1e-8 or delta_u_norm > 1e-8:
+            u, residual_norm, delta_u_norm = self.solver.update_solution(self.mesh.nodal_coordinates,
+                                                                         self.mesh.element_connectivity,
+                                                                         u)
+            print('{0:8}\t{1:.8e}\t{2:.8e}'.format(n, residual_norm, delta_u_norm))
+            # print(residual_norms)
+            n = n + 1
+
+        self.post_processor.write_time_step(1, 1.0)
+        for n, variable in enumerate(self.variables):
+            self.post_processor.write_nodal_values(variable, 1, np.array(u[:, n]))
+        self.post_processor.exo.close()
+
+    def run_analysis_old_and_working_for_single_variable(self) -> None:
         u = jnp.zeros(len(self.variables) * self.mesh.number_of_nodes)
         self.post_processor.write_time_step(0, 0.0)
         self.post_processor.write_nodal_values('u', 0, np.array(u))
