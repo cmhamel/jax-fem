@@ -29,6 +29,9 @@ class KernelBaseClass:
                                   'shape_function_order': self.kernel_input_settings['shape_function_order']}
         return element_factory(element_input_settings)
 
+    def _calculate_element_level_residual(self, residual_temp: jnp.ndarray, inputs: tuple) -> tuple:
+        assert False, 'This need to be overridden in your derived class!'
+
     def calculate_residual(self,
                            nodal_coordinates: jnp.ndarray,
                            connectivity: jnp.ndarray,

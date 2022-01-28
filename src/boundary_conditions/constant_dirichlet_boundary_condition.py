@@ -14,6 +14,7 @@ class ConstantDirichletBoundaryCondition(BoundaryConditionBaseClass):
         for node_set in self.node_sets:
             string = string + str(node_set) + ' '
         string = string + '\n'
+        string = string + '      Variable  = %s\n' % self.variable
         string = string + '      Constant  = %s\n' % self.constant
         return string
 

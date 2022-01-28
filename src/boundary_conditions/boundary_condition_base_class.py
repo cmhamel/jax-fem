@@ -8,6 +8,7 @@ class BoundaryConditionBaseClass:
                  boundary_condition_input_settings: dict) -> None:
         self.boundary_condition_input_settings = boundary_condition_input_settings
         self.node_sets = self.boundary_condition_input_settings['node_sets']
+        self.variable = self.boundary_condition_input_settings['variable']
         self.node_set_nodes = None
         self.tangent_index_list = None
 
