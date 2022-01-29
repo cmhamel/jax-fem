@@ -1,0 +1,75 @@
+number_of_dimensions: 2
+mesh: 
+  genesis_mesh: 
+    genesis_file: ./square_domain_mesh_element_length_0.025.g
+    blocks:
+      - 1
+    node_sets:
+      - 1
+      - 2
+      - 3
+      - 4
+
+variables:
+  - u
+  - v
+
+kernels:
+  - type: diffusion
+    blocks: 1
+    quadrature_order: 1
+    shape_function_order: 1
+    variable: u
+    D: 1.0
+  - type: constant_scalar_source
+    blocks: 1
+    quadrature_order: 1
+    shape_function_order: 1
+    variable: u
+    constant: 1.0
+  - type: diffusion
+    blocks: 1
+    quadrature_order: 1
+    shape_function_order: 1
+    variable: v
+    D: 1.0
+  - type: constant_scalar_source
+    blocks: 1
+    quadrature_order: 1
+    shape_function_order: 1
+    variable: v
+    constant: 1.0
+  
+boundary_conditions:
+  - type: constant_dirichlet
+    node_sets:
+      - 1
+      - 2
+      - 3
+      - 4
+    variable: u
+    constant: 0.0
+  - type: constant_dirichlet
+    node_sets:
+      - 1
+      - 2
+        #- 3
+        #- 4
+    variable: v
+    constant: 0.0
+  
+solver:
+  type: newton_solver
+  residual_tolerance: 1.0e-08
+  increment_tolerance: 1.0e-08
+  linear_solver:
+    type: gmres
+ 
+
+post_processor:
+  type: exodus
+  exodus_file: ./output.e
+  requested_outputs:
+    nodal_variables:
+      - u
+      - v

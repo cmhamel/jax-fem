@@ -30,13 +30,28 @@ class Analysis:
 
         # setup
         #
+        print('Setting up mesh...')
         self.mesh = self._setup_mesh()
+        print('Setting up variables...')
         self.variables = self._setup_variables()
+        print('Setting up kernels...')
         self.kernels = self._setup_kernels()
+        print('Setting up boundary conditions...')
         self.boundary_conditions = self._setup_boundary_conditions()
-        self.residual_methods, \
-        self.tangent_methods = self._setup_residual_and_tangent_methods()
+        print('Setting up boundary condition methods...')
+        self.bc_solution_methods, \
+        self.bc_residual_methods, \
+        self.bc_tangent_methods = self._setup_boundary_condition_methods()
+        print('Setting up element level residual methods...')
+        self.element_level_residual_methods = self._setup_element_level_residual_methods()
+        print('Setting up residual methods...')
+        self.residual_methods = self._setup_residual_methods()
+        self.tangent_methods_diagonal = None
+        self.tangent_methods_off_diagonal = None
+        # assert False
+        print('Setting up solver...')
         self.solver = self._setup_solver()
+        print('Setting up post processor...')
         self.post_processor = self._setup_post_processor()
 
         # other stuff
@@ -92,21 +107,188 @@ class Analysis:
 
         return boundary_conditions
 
-    def _setup_residual_and_tangent_methods(self):
+    def _setup_boundary_condition_methods(self) -> tuple:
+
+        # first organize the methods by variable
+        #
+        variable_bc_solution_methods = []
+        variable_bc_residual_methods = []
+        variable_bc_tangent_methods = []
+        for variable in self.variables:
+
+            # methods for enforcing bcs at the global level
+            #
+            temp_bc_solution_methods = []
+            temp_bc_residual_methods = []
+            temp_bc_tangent_methods = []
+
+            for bc in self.boundary_conditions:
+                if bc.variable == variable:
+                    temp_bc_solution_methods.append(bc.modify_solution_vector_to_satisfy_boundary_conditions)
+                    temp_bc_residual_methods.append(bc.modify_residual_vector_to_satisfy_boundary_conditions)
+                    temp_bc_tangent_methods.append(bc.modify_tangent_matrix_to_satisfy_boundary_conditions)
+
+            variable_bc_solution_methods.append(temp_bc_solution_methods)
+            variable_bc_residual_methods.append(temp_bc_residual_methods)
+            variable_bc_tangent_methods.append(temp_bc_tangent_methods)
+
+        # now build lambdas for each variable
+        #
+        solution_methods = []
+        residual_methods = []
+        tangent_methods = []
+        for n in range(len(self.variables)):
+
+            # make solution methods
+            #
+            if len(variable_bc_solution_methods[n]) < 1:
+                solution_methods.append(lambda u: u)
+            else:
+                temp_solution_method = lambda u, m=n, j=0: variable_bc_solution_methods[m][j](u)
+                if len(variable_bc_solution_methods[n]) > 1:
+                    for i in range(1, len(variable_bc_solution_methods[n])):
+                        temp_solution_method = lambda u, m=n, j=i, f=temp_solution_method: \
+                            variable_bc_solution_methods[m][j](f(u))
+
+                solution_methods.append(temp_solution_method)
+
+            # now make residual methods
+            #
+            if len(variable_bc_residual_methods[n]) < 1:
+                residual_methods.append(lambda u: u)
+            else:
+                temp_residual_method = lambda u, m=n, j=0: variable_bc_residual_methods[m][j](u)
+                if len(variable_bc_residual_methods[n]) > 1:
+                    for i in range(1, len(variable_bc_residual_methods[n])):
+                        temp_residual_method = lambda u, m=n, j=i, f=temp_residual_method: \
+                            variable_bc_residual_methods[m][j](f(u))
+
+                residual_methods.append(temp_residual_method)
+
+            # now make tangent methods
+            #
+            if len(variable_bc_tangent_methods[n]) < 1:
+                tangent_methods.append(lambda u: u)
+            else:
+                temp_tangent_method = lambda u, m=n, j=0: variable_bc_tangent_methods[m][j](u)
+                if len(variable_bc_tangent_methods[n]) > 1:
+                    for i in range(1, len(variable_bc_tangent_methods[n])):
+                        temp_tangent_method = lambda u, m=n, j=i, f=temp_tangent_method: \
+                            variable_bc_tangent_methods[m][j](f(u))
+
+                tangent_methods.append(temp_tangent_method)
+
+        return solution_methods, residual_methods, tangent_methods
+
+    def _setup_element_level_residual_methods(self) -> tuple:
+
+        # loop over variables to gather kernels
+        #
+        variable_kernels = []
+        variable_element_level_residual_methods = []
+        # TODO: add off diagonal tangent terms
+        for variable in self.variables:
+            temp_variable_kernels = []
+            temp_element_level_residual_methods = []
+            temp_element_level_tangent_diagonal_methods = []
+
+            for kernel in self.kernels:
+                if kernel.variable == variable:
+                    temp_variable_kernels.append(kernel)
+                    temp_element_level_residual_methods.append(kernel.calculate_element_level_residual)
+
+            # add to global arrays
+            #
+            variable_kernels.append(temp_variable_kernels)
+            variable_element_level_residual_methods.append(temp_element_level_residual_methods)
+
+        # TODO: compose residual and tangent methods here
+        #
+        residual_methods = []
+        for n in range(len(self.variables)):
+
+            # make lambdas
+            #
+            element_level_residual_method = lambda x, y, m=n, j=0: variable_element_level_residual_methods[m][j](x, y)
+
+            if len(variable_element_level_residual_methods[n]) > 1:
+                print('here')
+                for i in range(1, len(variable_element_level_residual_methods[n])):
+                    element_level_residual_method = lambda x, y, m=n, j=i, r=element_level_residual_method: \
+                        r(x, y) + variable_element_level_residual_methods[m][j](x, y)
+
+            residual_methods.append(element_level_residual_method)
+
+        return residual_methods
+
+    def assemble_residual(self,
+                          element_level_residual_method,
+                          nodal_coordinates,
+                          connectivity,
+                          u):
+
+        element_coordinates = nodal_coordinates[connectivity]
+        element_us = u[connectivity]
+        residual = jnp.zeros_like(u)
+
+        def scan_body(residual_temp, inputs):
+            element_level_coordinates, element_level_connectivity, element_level_us = inputs
+            element_level_residual = element_level_residual_method(element_level_coordinates,
+                                                                   element_level_us)
+            residual_temp = jax.ops.index_add(residual_temp,
+                                              jax.ops.index[element_level_connectivity],
+                                              element_level_residual)
+            return residual_temp, inputs
+
+        residual, _ = jax.lax.scan(scan_body,
+                                   residual,
+                                   (element_coordinates, connectivity, element_us))
+
+        return residual
+
+    def _setup_residual_methods(self):
+        residual_methods = []
+        for n in range(len(self.variables)):
+
+            residual_method = lambda x, y, z, m=n: \
+                self.assemble_residual(self.element_level_residual_methods[m], x, y, z)
+            residual_method = lambda x, y, z, m=n, r=residual_method: \
+                self.bc_residual_methods[m](r(x, y, z))
+
+            # TODO: try to bootstrap the bc update residual methods on top
+            #
+            residual_methods.append(residual_method)
+
+        return residual_methods
+
+    def _setup_residual_and_tangent_methods_old(self):
         """
         Try to set up a method to pre figure out what the residual methods are
         for each variable based on the kernels supplied
         :return:
         """
+
+        # TODO: change everything to do with kernels such that you just define
+        # TODO: an element level residual method, then the element level total residual
+        # TODO: constructed for all the kernels on a variable will be composed here
+        # TODO: and then fed into a general purpose assembly method such that
+        # TODO: we only lax.scan over the set of elements once for each variable
+        # TODO: the same should be done for the tangents so they're autodiffed at the element
+        # TODO: level and lax.scanned only once
+        #
+        # TODO: even better would be to only define a quadrature level method
+        # TODO: but that would complicate things requiring all kernels for a variable
+        # TODO: to have the same quadrature rule
+
         variable_kernels = []
         kernel_residual_methods = []
         bc_residual_methods = []
-        bc_tangent_methods = []
+        bc_tangent_methods_diagonal = []
         for variable in self.variables:
             temp_variable_kernels = []
             temp_kernel_residual_methods = []
             temp_bc_residual_methods = []
-            temp_bc_tangent_methods = []
+            temp_bc_tangent_methods_diagonal = []
             for kernel in self.kernels:
                 print(kernel)
                 if kernel.variable == variable:
@@ -117,12 +299,12 @@ class Analysis:
             for bc in self.boundary_conditions:
                 if bc.variable == variable:
                     temp_bc_residual_methods.append(bc.modify_residual_vector_to_satisfy_boundary_conditions)
-                    temp_bc_tangent_methods.append(bc.modify_tangent_matrix_to_satisfy_boundary_conditions)
+                    temp_bc_tangent_methods_diagonal.append(bc.modify_tangent_matrix_to_satisfy_boundary_conditions)
 
             variable_kernels.append(temp_variable_kernels)
             kernel_residual_methods.append(temp_kernel_residual_methods)
             bc_residual_methods.append(temp_bc_residual_methods)
-            bc_tangent_methods.append(temp_bc_tangent_methods)
+            bc_tangent_methods_diagonal.append(temp_bc_tangent_methods_diagonal)
 
         residual_methods = []
         for n in range(len(kernel_residual_methods)):
@@ -154,29 +336,33 @@ class Analysis:
 
         # make tangent methods
         #
-        tangent_methods = []
+        tangent_methods_diagonal = []
         for n in range(len(residual_methods)):
             if residual_methods[n] is not None:
-                temp_bc_tangent_methods = bc_tangent_methods[n]
+                temp_bc_tangent_methods_diagonal = bc_tangent_methods_diagonal[n]
                 tangent_method = jacfwd(residual_methods[n], argnums=2)
 
-                for bc_tangent_method in temp_bc_tangent_methods:
+                for bc_tangent_method in temp_bc_tangent_methods_diagonal:
                     tangent_method = lambda x, y, z, k=tangent_method, temp_bc_tangent_method=bc_tangent_method: \
                         temp_bc_tangent_method(k(x, y, z))
 
-                tangent_methods.append(jit(tangent_method))
+                tangent_methods_diagonal.append(jit(tangent_method))
             else:
-                tangent_methods.append(None)
+                tangent_methods_diagonal.append(None)
 
-        return residual_methods, tangent_methods
+        # TODO: fill out the off diagonal tangents
+        #
+        return residual_methods, tangent_methods_diagonal, None
 
     def _setup_solver(self) -> SolverBaseClass:
         return solver_factory(self.solver_input_settings,
                               self.variables,
                               self.kernels,
                               self.boundary_conditions,
+                              self.bc_solution_methods,
                               self.residual_methods,
-                              self.tangent_methods)
+                              self.tangent_methods_diagonal,
+                              self.tangent_methods_off_diagonal)
 
     def _setup_post_processor(self) -> PostProcessorBaseClass:
         self.post_processor_input_settings['mesh_file'] = self.mesh.genesis_file
@@ -195,12 +381,21 @@ class Analysis:
 
         residual_norm, delta_u_norm = 1.0, 1.0
         n = 0
-        print('{0:16}{1:16}{2:16}'.format('Iteration', '|R|', '|dU|'))
+        print('\n\n\n{0:16}{1:16}{2:16}'.format('Iteration', '|R|', '|dU|'))
         while residual_norm > 1e-8 or delta_u_norm > 1e-8:
-            u, residual_norm, delta_u_norm = self.solver.update_solution(self.mesh.nodal_coordinates,
-                                                                         self.mesh.element_connectivity,
-                                                                         u)
+        # while residual_norm > 1e-8:
+            # u, residual_norm, delta_u_norm = self.solver.update_solution(self.mesh.nodal_coordinates,
+            #                                                              self.mesh.element_connectivity,
+            #                                                              u)
+            u, residual_norm, residual_norms, delta_u_norm, delta_u_norms = \
+                self.solver.update_solution(self.mesh.nodal_coordinates, self.mesh.element_connectivity, u)
             print('{0:8}\t{1:.8e}\t{2:.8e}'.format(n, residual_norm, delta_u_norm))
+            for m in range(len(residual_norms)):
+                print('{0:8}\t  |R_{1:}| = {2:.8e}\t  |d{3:}| = {4:.8e}'.format('',
+                                                                                self.variables[m],
+                                                                                residual_norms[m],
+                                                                                self.variables[m],
+                                                                                delta_u_norms[m]))
             # print(residual_norms)
             n = n + 1
 

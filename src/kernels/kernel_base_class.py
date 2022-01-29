@@ -21,6 +21,8 @@ class KernelBaseClass:
             element_type = 'line_element'
         elif self.number_of_dimensions == 2:
             element_type = 'quad_element'
+        elif self.number_of_dimensions == 3:
+            element_type = 'hex_element'
         else:
             assert False, 'Unsupported number of dimensions in Kernel'
 
@@ -29,17 +31,13 @@ class KernelBaseClass:
                                   'shape_function_order': self.kernel_input_settings['shape_function_order']}
         return element_factory(element_input_settings)
 
-    def _calculate_element_level_residual(self, residual_temp: jnp.ndarray, inputs: tuple) -> tuple:
-        assert False, 'This need to be overridden in your derived class!'
-
-    def calculate_residual(self,
-                           nodal_coordinates: jnp.ndarray,
-                           connectivity: jnp.ndarray,
-                           u: jnp.ndarray) -> jnp.ndarray:
+    def calculate_element_level_residual(self,
+                                         element_level_coordinates: jnp.ndarray,
+                                         element_level_u: jnp.ndarray) -> jnp.ndarray:
         assert False, 'This needs to be overridden in your derived class!'
 
-    # def _calculate_element_level_residual(self,
-    #                                       element_level_coordinates: jnp.ndarray,
-    #                                       element_level_connectivity: jnp.ndarray,
-    #                                       element_level_u: jnp.ndarray) -> jnp.ndarray:
-    #     assert False, 'This needs to be overridden in your derived class!'
+    def calculate_element_level_tangent_diagonal(self,
+                                                 element_level_coordinates: jnp.ndarray,
+                                                 element_level_u: jnp.ndarray) -> jnp.ndarray:
+
+        return jacfwd(self.calculate_element_level_residual, argnums=1)(element_level_coordinates, element_level_u)

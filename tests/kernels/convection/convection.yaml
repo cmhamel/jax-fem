@@ -1,0 +1,53 @@
+number_of_dimensions: 3
+mesh: 
+  genesis_mesh: 
+    genesis_file: ./mug.e
+    blocks:
+      - 1
+    node_sets:
+      - 1
+      - 2
+
+variables:
+  - u
+
+kernels:
+  - type: diffusion
+    blocks: 1
+    quadrature_order: 2
+    shape_function_order: 1
+    variable: u
+    D: 1.0
+  - type: convection
+    blocks: 1
+    quadrature_order: 2
+    shape_function_order: 1
+    variable: u
+    v: [0.0, 0.0, 1.0]
+   
+boundary_conditions:
+  - type: constant_dirichlet
+    node_sets:
+      - 1
+    variable: u
+    constant: 1.0
+  - type: constant_dirichlet
+    node_sets:
+      - 2
+    variable: u
+    constant: 0.0
+  
+solver:
+  type: newton_solver
+  residual_tolerance: 1.0e-08
+  increment_tolerance: 1.0e-08
+  linear_solver:
+    type: gmres
+ 
+
+post_processor:
+  type: exodus
+  exodus_file: ./output.e
+  requested_outputs:
+    nodal_variables:
+      - u

@@ -16,34 +16,20 @@ class ConstantScalarSource(KernelBaseClass):
         string = string + '      Constant = %s\n\n' % self.constant
         return string
 
-    def _calculate_element_level_residual(self, residual_temp: jnp.ndarray, inputs: tuple) -> tuple:
-        element_level_coordinates, element_level_connectivity, element_level_us = inputs
-        element_level_us = element_level_us.reshape((-1, 1))
-        element_level_residual = jnp.zeros_like(element_level_us)
+    def calculate_element_level_residual(self,
+                                         element_level_coordinates: jnp.ndarray,
+                                         element_level_u: jnp.ndarray) -> jnp.ndarray:
 
-        for q in range(self.element.number_of_quadrature_points):
+        element_level_residual = jnp.zeros_like(element_level_u)
+
+        def loop_body(q: int, temp_element_level_residual: jnp.ndarray) -> jnp.ndarray:
             JxW = self.element.calculate_JxW(element_level_coordinates, q)
-            N_xi = self.element.N_xi[q]
-            element_level_residual = element_level_residual + \
-                                     JxW * self.constant * N_xi
+            N_xi = self.element.N_xi[q][:, 0]  # weird indexing stuff
+            temp_element_level_residual = temp_element_level_residual - \
+                                          JxW * self.constant * N_xi
+            return temp_element_level_residual
 
-        residual_temp = jax.ops.index_add(residual_temp, jax.ops.index[element_level_connectivity],
-                                          element_level_residual[:, 0])
-        return residual_temp, inputs
+        element_level_residual = jax.lax.fori_loop(0, self.element.number_of_quadrature_points,
+                                                   loop_body, element_level_residual)
 
-    def calculate_residual(self,
-                           nodal_coordinates: jnp.ndarray,
-                           connectivity: jnp.ndarray,
-                           u: jnp.ndarray) -> jnp.ndarray:
-
-        # elementify the stuff
-        #
-        element_coordinates = nodal_coordinates[connectivity]
-        element_us = u[connectivity]
-
-        # initialize residual and scan over elements
-        #
-        residual = jnp.zeros_like(u)
-        residual, _ = jax.lax.scan(self._calculate_element_level_residual,
-                                   residual, (element_coordinates, connectivity, element_us))
-        return residual
+        return element_level_residual

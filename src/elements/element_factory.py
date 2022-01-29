@@ -9,5 +9,8 @@ def element_factory(element_input_settings: dict) -> ElementBaseClass:
     elif element_type == 'quad_element':
         from .quad_element import QuadElement
         return QuadElement(element_input_settings)
+    elif element_type == 'hex_element':
+        from .hex_element import HexElement
+        return HexElement(element_input_settings)
     else:
         assert False

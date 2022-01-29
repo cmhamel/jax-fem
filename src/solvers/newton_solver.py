@@ -12,11 +12,18 @@ class NewtonSolver(SolverBaseClass):
                  variables: list,
                  kernels: list,
                  boundary_conditions: list,
+                 bc_update_solution_methods: list,
                  residual_methods: list,
-                 tangent_methods: list) -> None:
+                 tangent_methods_diagonal: list,
+                 tangent_methods_off_diagonal=None) -> None:
         super(NewtonSolver, self).__init__(solver_input_settings,
-                                           variables, kernels, boundary_conditions,
-                                           residual_methods, tangent_methods)
+                                           variables,
+                                           kernels,
+                                           boundary_conditions,
+                                           bc_update_solution_methods,
+                                           residual_methods,
+                                           tangent_methods_diagonal,
+                                           tangent_methods_off_diagonal)
         self.residual_tolerance = self.solver_input_settings['residual_tolerance']
         self.increment_tolerance = self.solver_input_settings['increment_tolerance']
 
@@ -37,68 +44,62 @@ class NewtonSolver(SolverBaseClass):
         # update solution vectors to match the dirichlet bcs
         #
         for n, variable in enumerate(self.variables):
-            for bc in self.boundary_conditions:
-                if bc.variable == variable:
-                    u = jax.ops.index_update(u, jax.ops.index[:, n],
-                                             bc.modify_solution_vector_to_satisfy_boundary_conditions(u[:, n]))
+            u = jax.ops.index_update(u, jax.ops.index[:, n],
+                                     self.bc_update_solution_methods[n](u[:, n]))
 
-        # vectorize solution vectors
+        # calculate residual
+        # TODO: this only works for uncoupled problems so far, need to figure
+        # TODO: out how to properly construct lambdas from coupled kernels
         #
-        u_vec = u[:, 0]
-        if u.shape[1] > 1:
-            for n in range(1, u.shape[1]):
-                u_vec = jnp.hstack((u_vec, u[:, n]))
-
-        residual = jnp.zeros_like(u_vec)
+        residual = jnp.zeros((u.shape[0] * u.shape[1]))
+        tangent = jnp.zeros((residual.shape[0], residual.shape[0]))
+        residual_norms = []
         for n, residual_method in enumerate(self.residual_methods):
-            if residual_method is not None:
-                temp_residual = residual_method(nodal_coordinates, element_connectivity, u[:, n])
-                residual = jax.ops.index_update(residual,
-                                                jax.ops.index[n * u.shape[0]:(n + 1) * u.shape[0]],
-                                                temp_residual)
+            temp_residual = residual_method(nodal_coordinates, element_connectivity, u[:, n])
+            residual_norms.append(jnp.linalg.norm(temp_residual))
+            residual = jax.ops.index_update(residual,
+                                            jax.ops.index[n * u.shape[0]:(n + 1) * u.shape[0]],
+                                            temp_residual)
 
-        # calculate individual tangents
+            temp_tangent = jacfwd(residual_method, argnums=2)(nodal_coordinates, element_connectivity, u[:, n])
+
+            # TODO: hook up to tangent update bc methods that are constructed from lambdas
+            #
+            for bc in self.boundary_conditions:
+                if bc.variable == self.variables[n]:
+                    temp_tangent = bc.modify_tangent_matrix_to_satisfy_boundary_conditions(temp_tangent)
+            tangent = jax.ops.index_update(tangent,
+                                           jax.ops.index[n * u.shape[0]:(n + 1) * u.shape[0],
+                                                         n * u.shape[0]:(n + 1) * u.shape[0]],
+                                           temp_tangent)
+
+        # calculate individual diagonal tangents
         #
         # TODO: This only works works for uncoupled kernels currently, need to update everything to include
         # TODO: couple kernels
+
+        # TODO: add the hooks for off diagonal tangent assembly
         #
-        tangent = jnp.zeros((residual.shape[0], residual.shape[0]))
-        for n, tangent_method in enumerate(self.tangent_methods):
-            if tangent_method is not None:
-                temp_tangent = tangent_method(nodal_coordinates, element_connectivity, u[:, n])
-                tangent = jax.ops.index_update(tangent,
-                                               jax.ops.index[n * u.shape[0]:(n + 1) * u.shape[0],
-                                                             n * u.shape[0]:(n + 1) * u.shape[0]],
-                                               temp_tangent)
 
-        delta_u_vec, _ = jax.scipy.sparse.linalg.gmres(tangent, residual)
-        u_vec = u_vec - delta_u_vec
+        # TODO: hook up to linear solver factory
+        #
+        delta_u_vec = jax.scipy.linalg.solve(tangent, residual)
 
+        # unvectorize solution element
+        #
+        delta_u = jnp.zeros_like(u)
+        for n in range(u.shape[1]):
+            delta_u = jax.ops.index_update(delta_u, jax.ops.index[:, n],
+                                           delta_u_vec[n * u.shape[0]:(n + 1) * u.shape[0]])
+
+        # calculate some norms
+        #
         residual_norm = jnp.linalg.norm(residual)
         delta_u_vec_norm = jnp.linalg.norm(delta_u_vec)
+        delta_u_norms = jnp.linalg.norm(delta_u, axis=0)
 
-        # unvectorize
+        # update solution array and return
         #
-        u_new = jnp.zeros_like(u)
-        for n in range(u.shape[1]):
-            u_new = jax.ops.index_update(u_new, jax.ops.index[:, n], u_vec[n * u.shape[0]:(n + 1) * u.shape[0]])
+        u_new = u - delta_u
 
-        return u_new, residual_norm, delta_u_vec_norm
-
-    def update_solution_old_but_works(self,
-                        nodal_coordinates: jnp.ndarray,
-                        element_connectivity: jnp.ndarray,
-                        u: jnp.ndarray) -> tuple:
-        for bc in self.boundary_conditions:
-            u = bc.modify_solution_vector_to_satisfy_boundary_conditions(u)
-
-        residual = self.residual_methods[0](nodal_coordinates, element_connectivity, u)
-        tangent = self.tangent_methods[0](nodal_coordinates, element_connectivity, u)
-
-        delta_u, _ = jax.scipy.sparse.linalg.gmres(tangent, residual)
-        u = u - delta_u
-
-        residual_norm = jnp.linalg.norm(residual)
-        delta_u_norm = jnp.linalg.norm(delta_u)
-
-        return u, residual_norm, delta_u_norm
+        return u_new, residual_norm, residual_norms, delta_u_vec_norm, delta_u_norms
