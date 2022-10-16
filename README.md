@@ -1,2 +1,2 @@
 # jax-fem
-Finite element library written in jax
+Finite element library written in jax.
